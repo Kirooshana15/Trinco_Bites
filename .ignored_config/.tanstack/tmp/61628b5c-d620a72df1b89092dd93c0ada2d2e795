@@ -1,0 +1,47 @@
+import { createFileRoute } from '@tanstack/react-router'
+export const Route = createFileRoute("/restaurant/$id")({
+  component: RestaurantPage,
+  loader: ({ params }) => {
+    const r = findRestaurant(params.id);
+    if (!r) throw notFound();
+    return r;
+  },
+});
+
+function RestaurantPage() {
+  const r = Route.useLoaderData();
+  const { count } = useCart();
+
+  return (
+    <div className="min-h-screen pb-32 bg-gradient-soft">
+      <Navbar />
+      <div className="relative h-64 md:h-80 overflow-hidden">
+        <img src={r.image} alt={r.name} width={1024} height={640} className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />
+      </div>
+      <div className="mx-auto max-w-6xl px-4 -mt-16 relative">
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-card rounded-3xl shadow-card p-6">
+          <h1 className="text-2xl font-extrabold">{r.name}</h1>
+          <div className="mt-2 flex flex-wrap gap-4 text-sm text-muted-foreground">
+            <span className="flex items-center gap-1 text-brand-olive font-semibold"><Star className="h-4 w-4 fill-current" />{r.rating}</span>
+            <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{r.deliveryTime}</span>
+            <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{r.location}</span>
+          </div>
+        </motion.div>
+
+        <h2 className="mt-8 mb-4 text-xl font-bold">Menu</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {r.menu.map((m: typeof r.menu[number], i: number) => <FoodCard key={m.id} item={m} restaurantId={r.id} index={i} />)}
+        </div>
+      </div>
+
+      {count > 0 && (
+        <motion.div initial={{ y: 100 }} animate={{ y: 0 }} className="fixed bottom-6 right-6 z-30">
+          <Link to="/cart" className="flex items-center gap-2 bg-gradient-warm text-primary-foreground px-5 py-3.5 rounded-full shadow-glow font-semibold">
+            <ShoppingBag className="h-5 w-5" /> View Cart ({count})
+          </Link>
+        </motion.div>
+      )}
+    </div>
+  );
+}
