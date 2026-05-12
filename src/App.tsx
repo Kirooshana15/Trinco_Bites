@@ -3,6 +3,7 @@ import { CartProvider } from "@/context/CartContext";
 import { LocationProvider } from "@/context/LocationContext";
 import { SearchProvider } from "@/context/SearchContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { OrderProvider } from "@/context/OrderContext";
 
 
 function NotFoundComponent() {
@@ -25,7 +26,9 @@ const rootRoute = createRootRoute({
       <LocationProvider>
         <SearchProvider>
           <AuthProvider>
-            <Outlet />
+            <OrderProvider>
+              <Outlet />
+            </OrderProvider>
           </AuthProvider>
         </SearchProvider>
       </LocationProvider>
@@ -41,10 +44,11 @@ import { Login } from "./pages/login";
 import { Onboarding } from "./pages/onboarding";
 import { Rate } from "./pages/rate";
 import { Register } from "./pages/register";
-import { RestaurantPage } from "./pages/restaurant.$id";
 import { Success } from "./pages/success";
 import { Track } from "./pages/track";
 import { LocationPage } from "./pages/location";
+import { RestaurantPage } from "./components/restaurant.$id";
+import { FoodDetailPage } from "./components/food.$id";
 
 // Define Routes
 const indexRoute = createRoute({
@@ -95,6 +99,12 @@ const registerRoute = createRoute({
   component: Register,
 });
 
+const signupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signup",
+  component: Register,
+});
+
 const restaurantRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/restaurant/$id",
@@ -119,6 +129,14 @@ const locationRoute = createRoute({
   component: LocationPage,
 });
 
+const foodRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/food/$id",
+  component: FoodDetailPage,
+});
+
+
+
 // Assemble Route Tree
 export const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -129,10 +147,12 @@ export const routeTree = rootRoute.addChildren([
   onboardingRoute,
   rateRoute,
   registerRoute,
+  signupRoute,
   restaurantRoute,
   successRoute,
   trackRoute,
   locationRoute,
+  foodRoute,
 ]);
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {

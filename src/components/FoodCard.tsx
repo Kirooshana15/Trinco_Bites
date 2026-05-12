@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Star, Plus, Heart, Minus, Flame } from "lucide-react";
 import type { FoodItem } from "@/utils/data/mock";
 import { useCart } from "@/context/CartContext";
+import { Link } from "@tanstack/react-router";
 import gsap from "gsap";
 
 // ─── Google Fonts (add to your index.html or _document.tsx) ─────────────────
-// <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;700;900&display=swap" rel="stylesheet" />
 
 export function FoodCard({
   item,
@@ -36,14 +36,17 @@ export function FoodCard({
     const card = cardRef.current;
     if (!card) return;
 
-    gsap.set(card, { opacity: 0, y: 40, scale: 0.96, rotateX: 6 });
-
     const tl = gsap.timeline({
       delay: index * 0.08,
-      defaults: { ease: "expo.out", duration: 0.9 },
+      defaults: { ease: "expo.out", duration: 1.2 },
     });
 
-    tl.to(card, { opacity: 1, y: 0, scale: 1, rotateX: 0 });
+    const xOffset = index % 2 === 0 ? -20 : 20;
+    const initialRotation = index % 2 === 0 ? -5 : 5;
+
+    gsap.set(card, { opacity: 0, y: 50, x: xOffset, scale: 0.9, rotate: initialRotation });
+
+    tl.to(card, { opacity: 1, y: 0, x: 0, scale: 1, rotate: 0 });
 
     if (badgeRef.current) {
       gsap.fromTo(
@@ -143,11 +146,12 @@ export function FoodCard({
   };
 
   return (
-    <div
-      ref={cardRef}
-      style={{ perspective: "1000px", transformStyle: "preserve-3d" }}
-      className="group relative flex flex-col rounded-[28px] overflow-hidden border border-[#F8DDA4]/30 bg-white cursor-pointer select-none"
-    >
+    <Link to="/food/$id" params={{ id: item.id }}>
+      <div
+        ref={cardRef}
+        style={{ perspective: "1000px", transformStyle: "preserve-3d" }}
+        className="group relative flex flex-col rounded-[28px] overflow-hidden border border-[#F8DDA4]/30 bg-white cursor-pointer select-none"
+      >
       {/* ── Shimmer overlay ────────────────────────────────────────────────── */}
       <div
         ref={shimmerRef}
@@ -254,7 +258,7 @@ export function FoodCard({
         <h4
           className="leading-tight text-base group-hover:text-[#D45113] transition-colors duration-300"
           style={{
-            fontFamily: "'Cormorant Garamond', Georgia, serif",
+            fontFamily: "var(--font-heading)",
             fontWeight: 700,
             fontSize: "1.08rem",
             color: "#813405",
@@ -268,7 +272,7 @@ export function FoodCard({
         <p
           className="text-[11px] leading-relaxed line-clamp-2 flex-1"
           style={{
-            fontFamily: "'DM Sans', sans-serif",
+            fontFamily: "var(--font-body)",
             color: "#9C7A5B",
             fontStyle: "italic",
           }}
@@ -290,7 +294,7 @@ export function FoodCard({
           <div className="flex flex-col leading-none">
             <span
               className="text-[9px] uppercase tracking-[0.15em] mb-1"
-              style={{ fontFamily: "'DM Sans', sans-serif", color: "#C4A07A", fontWeight: 700 }}
+              style={{ fontFamily: "var(--font-body)", color: "#C4A07A", fontWeight: 700 }}
             >
               Price
             </span>
@@ -298,7 +302,7 @@ export function FoodCard({
               ref={priceRef}
               className="text-lg font-black"
               style={{
-                fontFamily: "'Cormorant Garamond', Georgia, serif",
+                fontFamily: "var(--font-heading)",
                 color: "#813405",
                 letterSpacing: "-0.02em",
               }}
@@ -325,7 +329,7 @@ export function FoodCard({
               </button>
               <span
                 className="min-w-[22px] text-center text-sm font-black"
-                style={{ color: "#813405", fontFamily: "'DM Sans', sans-serif" }}
+                style={{ color: "#813405", fontFamily: "var(--font-body)" }}
               >
                 {quantity}
               </span>
@@ -347,7 +351,7 @@ export function FoodCard({
               style={{
                 background: "linear-gradient(135deg, #D45113 0%, #813405 100%)",
                 boxShadow: "0 6px 20px rgba(212,81,19,0.35), inset 0 1px 0 rgba(255,255,255,0.15)",
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "var(--font-body)",
                 letterSpacing: "0.04em",
               }}
             >
@@ -363,5 +367,6 @@ export function FoodCard({
         </div>
       </div>
     </div>
+    </Link>
   );
 }

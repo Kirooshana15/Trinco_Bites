@@ -9,6 +9,11 @@ import { useLocationState } from "@/context/LocationContext";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
+import { useEffect } from "react";
+import { useOrders } from "@/context/OrderContext";
+import { findRestaurant } from "@/utils/data/mock";
+import { isRestaurantOpen } from "@/utils/time";
 
 // ── Card brand definitions ─────────────────────────────────────────────────
 const CARD_BRANDS = [
@@ -59,13 +64,27 @@ function detectCardBrand(number: string): string | null {
 }
 
 export function Checkout() {
-  const { total, clear } = useCart();
+  const { items, total, clear } = useCart();
   const { selectedLocation } = useLocationState();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const { placeOrder } = useOrders();
   const [pay, setPay] = useState<"cash" | "card">("cash");
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate({ to: "/login" });
+    }
+  }, [isAuthenticated, navigate]);
+
+  if (!isAuthenticated) return null;
   const [loc, setLoc] = useState("");
   const [cardNum, setCardNum] = useState("");
   const [contact, setContact] = useState({ name: "", phone: "", email: "" });
+  const hasClosedRestaurantItems = items.some((item) => {
+    const restaurant = findRestaurant(item.restaurantId);
+    return restaurant ? !isRestaurantOpen(restaurant) : false;
+  });
 
   const detectedBrand = detectCardBrand(cardNum);
 
@@ -77,6 +96,23 @@ export function Checkout() {
       .trim();
 
   const place = () => {
+    if (hasClosedRestaurantItems) return;
+    const restaurantName =
+      items.length > 0
+        ? findRestaurant(items[0].restaurantId)?.name ?? "Trinco Bites"
+        : "Trinco Bites";
+
+    placeOrder({
+      restaurantName,
+      items,
+      subtotal: total,
+      deliveryFee: 250,
+      total: total + 250,
+      paymentMethod: pay,
+      contact,
+      deliveryAddress: loc || selectedLocation.label,
+      locationLabel: selectedLocation.label,
+    });
     clear();
     navigate({ to: "/track" });
   };
@@ -97,7 +133,7 @@ export function Checkout() {
             </div>
             <h1
               className="text-2xl font-black text-[#813405]"
-              style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", letterSpacing: "-0.02em" }}
+              style={{ fontFamily: "var(--font-heading)", letterSpacing: "-0.02em" }}
             >
               Checkout
             </h1>
@@ -297,6 +333,11 @@ export function Checkout() {
             <h3 className="font-black text-[#813405] text-sm mb-4 uppercase tracking-widest text-[10px]">
               🧾 Order Summary
             </h3>
+            {hasClosedRestaurantItems && (
+              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+                This restaurant is currently closed. You cannot place this order right now.
+              </div>
+            )}
             <div className="flex justify-between items-center mb-3">
               <span className="text-slate-400 text-sm">Subtotal</span>
               <span className="font-bold text-[#813405]">Rs {total.toLocaleString()}</span>
@@ -310,8 +351,8 @@ export function Checkout() {
               style={{ background: "linear-gradient(to right, transparent, #F8DDA4, transparent)" }}
             />
             <div className="flex justify-between font-black text-xl text-[#813405] mb-7">
-              <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}>Total</span>
-              <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
+              <span style={{ fontFamily: "var(--font-heading)" }}>Total</span>
+              <span style={{ fontFamily: "var(--font-heading)" }}>
                 Rs {(total + 250).toLocaleString()}
               </span>
             </div>
@@ -319,10 +360,15 @@ export function Checkout() {
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={place}
+              disabled={hasClosedRestaurantItems}
               className="w-full text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm relative overflow-hidden"
               style={{
-                background: "linear-gradient(135deg, #D45113 0%, #813405 100%)",
-                boxShadow: "0 8px 28px rgba(212,81,19,0.38), inset 0 1px 0 rgba(255,255,255,0.15)",
+                background: hasClosedRestaurantItems
+                  ? "rgba(148,163,184,0.8)"
+                  : "linear-gradient(135deg, #D45113 0%, #813405 100%)",
+                boxShadow: hasClosedRestaurantItems
+                  ? "none"
+                  : "0 8px 28px rgba(212,81,19,0.38), inset 0 1px 0 rgba(255,255,255,0.15)",
               }}
             >
               {/* inner gloss */}

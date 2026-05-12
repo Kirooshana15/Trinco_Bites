@@ -106,40 +106,55 @@ function CatChip({
 }
 
 /* ── Visual Constants ───────────────────────────────────────────── */
-const CARD_COLORS = [
-  "#D97745",
-  "#3BA99C",
-  "#E05D5D",
-  "#5C85D6",
-  "#9A6DCC",
-  "#4DA89E",
+const CARD_BACKGROUNDS = [
+  "linear-gradient(145deg, #2B160B 0%, #6E3414 45%, #D97745 100%)",
+  "linear-gradient(145deg, #0F2523 0%, #1E5B55 48%, #57B7A8 100%)",
+  "linear-gradient(145deg, #2F1216 0%, #7B2434 46%, #E47A83 100%)",
+  "linear-gradient(145deg, #121D34 0%, #274D86 48%, #76A5F6 100%)",
+  "linear-gradient(145deg, #241634 0%, #5A3184 48%, #B894E6 100%)",
+  "linear-gradient(145deg, #132B2A 0%, #1F6660 45%, #71C8BC 100%)",
 ];
 
 /* ── Menu Row Card ──────────────────────────────────────────────── */
-function MenuRow({ item, index, restaurantId, onSelect }: {
+function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
   item: FoodItem;
   index: number;
   restaurantId: string;
   onSelect: (item: FoodItem) => void;
+  isOpen: boolean;
 }) {
 
-  return (
+  const card = (
     <motion.div
-      layoutId={`card-bg-${item.id}`}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      onClick={() => onSelect(item)}
-      className="relative flex flex-col lg:h-full rounded-[40px] p-6 shadow-2xl border border-white/20 cursor-pointer overflow-visible"
-      style={{ background: CARD_COLORS[index % CARD_COLORS.length] }}
-    >
+        layoutId={`card-bg-${item.id}`}
+        initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30, rotate: index % 2 === 0 ? -2 : 2 }}
+        whileInView={{ opacity: 1, x: 0, rotate: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
+        className="relative flex flex-col lg:h-full rounded-[40px] p-6 shadow-2xl border border-white/15 cursor-pointer overflow-hidden"
+        style={{
+          background: CARD_BACKGROUNDS[index % CARD_BACKGROUNDS.length],
+          boxShadow: "0 24px 44px rgba(37, 16, 7, 0.18), inset 0 1px 0 rgba(255,255,255,0.16)",
+        }}
+      >
       <motion.div
         layoutId={`card-texture-${item.id}`}
         className="absolute inset-0 opacity-10 pointer-events-none rounded-[40px]"
         style={{
-          backgroundImage: "url('https://www.transparenttextures.com/patterns/subtle-surface.png')",
-          opacity: 0.1
+          backgroundImage:
+            "radial-gradient(circle at 18% 18%, rgba(255,255,255,0.22), transparent 32%), radial-gradient(circle at 82% 12%, rgba(248,221,164,0.18), transparent 28%), linear-gradient(135deg, rgba(255,255,255,0.08), transparent 55%)",
+          opacity: 1,
         }}
+      />
+
+      <div
+        className="absolute inset-x-6 top-0 h-px pointer-events-none"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)" }}
+      />
+
+      <div
+        className="absolute inset-x-0 bottom-0 h-24 pointer-events-none"
+        style={{ background: "linear-gradient(to top, rgba(7,4,2,0.2), transparent)" }}
       />
 
       <div className="flex-1 flex flex-col items-start text-left z-10 pr-4">
@@ -159,18 +174,40 @@ function MenuRow({ item, index, restaurantId, onSelect }: {
 
       <motion.div
         layoutId={`card-image-container-${item.id}`}
-        className="absolute bottom-[-20px] right-[-20px] z-30"
+        transition={{ type: "spring", stiffness: 220, damping: 24 }}
+        className="absolute bottom-4 right-4 z-30"
       >
-        <div className="h-28 w-28 md:h-32 md:w-32 rounded-full border-[6px] border-white shadow-2xl overflow-hidden bg-white transform rotate-[-10deg]">
+        <div 
+          className="h-24 w-24 md:h-28 md:w-28 rounded-full border-[4px] border-white/90 shadow-2xl overflow-hidden bg-white transform"
+          style={{ rotate: index % 2 === 0 ? "-10deg" : "10deg" }}
+        >
           <motion.img
             layoutId={`card-image-${item.id}`}
+            transition={{ type: "spring", stiffness: 220, damping: 24 }}
             src={item.image}
             alt={item.name}
             className="h-full w-full object-cover"
           />
         </div>
       </motion.div>
+      {!isOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#120400]/55 backdrop-blur-[2px]">
+          <div className="rounded-full border border-white/20 bg-white/15 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white">
+            Restaurant Closed
+          </div>
+        </div>
+      )}
     </motion.div>
+  );
+
+  return isOpen ? (
+    <Link to="/food/$id" params={{ id: item.id }}>
+      {card}
+    </Link>
+  ) : (
+    <div className="cursor-not-allowed">
+      {card}
+    </div>
   );
 }
 
@@ -199,10 +236,7 @@ export function RestaurantPage() {
   const r = findRestaurant(id || "");
   const { count, add, decrement, items: cartItems } = useCart();
   const [activeCategory, setActiveCategory] = useState("All");
-  const [selectedItem, setSelectedItem] = useState<FoodItem | null>(null);
 
-  // Get current quantity of selected item from cart
-  const currentQty = selectedItem ? (cartItems.find(i => i.id === selectedItem.id)?.quantity || 0) : 0;
 
   if (!r) return null;
 
@@ -229,7 +263,7 @@ export function RestaurantPage() {
   return (
     <div
       className="flex min-h-screen flex-col"
-      style={{ background: C.bg, fontFamily: "Georgia, 'Times New Roman', serif" }}
+      style={{ background: C.bg, fontFamily: "var(--font-body)" }}
     >
       <Navbar />
 
@@ -248,34 +282,26 @@ export function RestaurantPage() {
               </Link>
             </motion.div>
 
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-              <div className="flex-1">
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 mb-4">
-                  <div className="h-16 w-16 rounded-2xl bg-white p-1 shadow-xl border-2 border-[#F8DDA4]/30 overflow-hidden">
-                    <img src={r.image} alt="logo" className="h-full w-full object-cover rounded-xl" />
-                  </div>
-                  <div className="px-3 py-1 rounded-full bg-[#D45113] text-white text-[10px] font-bold uppercase tracking-widest">
-                    {r.category}
-                  </div>
-                </motion.div>
+            <div className="flex flex-col items-center text-center">
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-4 mb-4">
+                <div className="h-20 w-20 rounded-2xl bg-white p-1 shadow-2xl border-2 border-[#F8DDA4]/30 overflow-hidden">
+                  <img src={r.image} alt="logo" className="h-full w-full object-cover rounded-xl" />
+                </div>
+                <div className="px-4 py-1.5 rounded-full bg-[#D45113] text-white text-[10px] font-black uppercase tracking-widest">
+                  {r.category}
+                </div>
+              </motion.div>
 
-                <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                  className="text-4xl md:text-5xl font-black text-white leading-tight">
-                  {r.name}
-                </motion.h1>
+              <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+                className="text-4xl md:text-6xl font-black text-white leading-tight">
+                {r.name}
+              </motion.h1>
 
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
-                  className="mt-4 flex flex-wrap items-center gap-4 text-white/80 text-sm">
-                  <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#F9A03F]" /> {r.location}</div>
-                  <div className="flex items-center gap-1.5"><Star size={14} className="text-[#F9A03F] fill-[#F9A03F]" /> {r.rating} (500+ reviews)</div>
-                </motion.div>
-              </div>
-
-              {r.hasOffer && (
-                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.3 }}>
-                  <OffersBadge variant="detail" label={r.offerText} />
-                </motion.div>
-              )}
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
+                className="mt-6 flex flex-wrap items-center justify-center gap-6 text-white/90 text-sm">
+                <div className="flex items-center gap-2"><MapPin size={16} className="text-[#F9A03F]" /> {r.location}</div>
+                <div className="flex items-center gap-2"><Star size={16} className="text-[#F9A03F] fill-[#F9A03F]" /> {r.rating} (500+ reviews)</div>
+              </motion.div>
             </div>
           </div>
         </section>
@@ -307,14 +333,15 @@ export function RestaurantPage() {
 
             <div className="flex flex-col items-center text-center p-2 border-l border-slate-100">
               <Info className="text-[#D45113] mb-2" size={20} />
-              <p className="text-sm font-bold text-[#813405]">Verified</p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-tighter">Restaurant info</p>
+              <p className={`text-[11px] font-black leading-tight ${r.deliveryAvailable ? 'text-[#813405]' : 'text-red-600'}`}>
+                {r.deliveryAvailable ? `Rs. ${r.deliveryFee?.toLocaleString()}.00` : "Delivery Unavailable"}
+              </p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-tighter mt-1">
+                {r.deliveryAvailable ? "Delivery Fee" : "Status"}
+              </p>
             </div>
           </motion.div>
         </section>
-
-
-
 
         {/* ── Menu Display Section (Responsive Grid) ──────────────────── */}
         <section className="mx-auto max-w-7xl px-4 mt-8 pb-24">
@@ -323,9 +350,9 @@ export function RestaurantPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-3xl font-black text-[#813405] mb-8 text-center md:text-left"
-            style={{ fontFamily: "'Cormorant Garamond', serif" }}
+            style={{ fontFamily: "var(--font-heading)" }}
           >
-            {activeCategory === "All" ? "Full Menu" : `${activeCategory} Items`}
+            {activeCategory === "All" ? "Explore All" : `${activeCategory} Items`}
           </motion.h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-12">
@@ -336,167 +363,15 @@ export function RestaurantPage() {
                   item={item}
                   index={uniqueMenu.findIndex(m => m.category === item.category)}
                   restaurantId={r.id}
-                  onSelect={setSelectedItem}
+                  onSelect={() => {}}
+                  isOpen={isOpen}
                 />
               ))}
             </AnimatePresence>
           </div>
         </section>
 
-        {/* ── Food Detail Overlay (Mobile App Style) ─────────────────── */}
-        <AnimatePresence>
-          {selectedItem && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setSelectedItem(null)}
-                className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              />
 
-              <motion.div
-                layoutId={`card-bg-${selectedItem.id}`}
-                className="relative w-full h-full md:h-[90vh] md:max-w-md bg-white md:rounded-[60px] overflow-hidden shadow-2xl flex flex-col"
-              >
-                {/* Diagonal Background Split */}
-                <div
-                  className="absolute inset-0 z-0 pointer-events-none transition-colors duration-500"
-                  style={{
-                    background: `linear-gradient(135deg, white 50%, ${selectedItem.id ? CARD_COLORS[uniqueMenu.findIndex(m => m.category === selectedItem.category) % CARD_COLORS.length] : '#F9C74F'} 50%)`
-                  }}
-                />
-
-                {/* Top Nav */}
-                <div className="relative z-10 flex items-center justify-between px-8 pt-12 pb-6">
-                  <motion.button
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => setSelectedItem(null)}
-                    className="h-10 w-10 flex items-center justify-center text-slate-800"
-                  >
-                    <ArrowLeft size={24} />
-                  </motion.button>
-                  <div className="flex items-center gap-4 text-slate-800">
-                    <Heart size={22} />
-                  </div>
-                </div>
-
-                {/* Title & Emojis */}
-                <div className="relative z-10 text-center px-8">
-                  <motion.h3
-                    className="text-2xl font-black text-slate-900 flex items-center justify-center gap-2 mb-1"
-                  >
-                    🍽️ Taste the Trinco Heat 🔥
-                  </motion.h3>
-                  <motion.p
-                    layoutId={`card-title-${selectedItem.id}`}
-                    className="text-lg text-slate-600 uppercase tracking-wide"
-                  >
-                    {selectedItem.name}
-                  </motion.p>
-                </div>
-
-                {/* Large Center Image with Carousel Effect & Arrows */}
-                <div className="relative z-10 flex-1 flex items-center justify-center py-4 px-4">
-                  {/* Left Arrow */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const variants = r.menu.filter(m => m.category === selectedItem.category);
-                      const idx = variants.findIndex(m => m.id === selectedItem.id);
-                      const prevIdx = (idx - 1 + variants.length) % variants.length;
-                      setSelectedItem(variants[prevIdx]);
-                    }}
-                    className="absolute left-4 z-50 h-10 w-10 rounded-full bg-white/80 backdrop-blur shadow-md flex items-center justify-center text-slate-800 hover:bg-white transition-colors"
-                  >
-                    <ChevronLeft size={24} />
-                  </button>
-
-                  <motion.div
-                    layoutId={`card-image-container-${selectedItem.id}`}
-                    className="relative z-20"
-                  >
-                    <div className="h-64 w-64 md:h-72 md:w-72 rounded-full border-[8px] border-white shadow-[0_20px_50px_rgba(0,0,0,0.15)] overflow-hidden bg-white">
-                      <motion.img
-                        layoutId={`card-image-${selectedItem.id}`}
-                        src={selectedItem.image}
-                        alt={selectedItem.name}
-                        className="h-full w-full object-cover scale-110"
-                      />
-                    </div>
-                  </motion.div>
-
-                  {/* Right Arrow */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const variants = r.menu.filter(m => m.category === selectedItem.category);
-                      const idx = variants.findIndex(m => m.id === selectedItem.id);
-                      const nextIdx = (idx + 1) % variants.length;
-                      setSelectedItem(variants[nextIdx]);
-                    }}
-                    className="absolute right-4 z-50 h-10 w-10 rounded-full bg-white/80 backdrop-blur shadow-md flex items-center justify-center text-slate-800 hover:bg-white transition-colors"
-                  >
-                    <ChevronRight size={24} />
-                  </button>
-                </div>
-
-                {/* Bottom Content Area */}
-                <div className="relative z-10 px-8 pb-12 flex flex-col items-center">
-                  <div className="mb-10 text-center">
-                    <p className="text-5xl font-black text-slate-900 leading-none mb-6">
-                      LKR {selectedItem.price.toLocaleString()}.00
-                    </p>
-
-                    {/* Quantity Selector */}
-                    <div className="flex items-center justify-center gap-6 mb-8">
-                      <motion.button
-                        whileTap={{ scale: 0.8 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          decrement(selectedItem.id);
-                        }}
-                        className="text-2xl text-slate-400 hover:text-[#D45113] transition-colors"
-                      >
-                        <Minus size={24} strokeWidth={3} />
-                      </motion.button>
-
-                      <motion.div
-                        key={currentQty}
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className={`h-16 w-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg transition-colors duration-300 ${currentQty > 0 ? 'bg-[#F9C74F] text-slate-800 shadow-[#F9C74F]/40' : 'bg-slate-100 text-slate-400 shadow-none'
-                          }`}
-                      >
-                        {currentQty}
-                      </motion.div>
-
-                      <motion.button
-                        whileTap={{ scale: 0.8 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          add(selectedItem, r.id, 1);
-                        }}
-                        className="text-2xl text-slate-400 hover:text-[#D45113] transition-colors"
-                      >
-                        <Plus size={24} strokeWidth={3} />
-                      </motion.button>
-                    </div>
-                  </div>
-
-                  {/* Continue Button */}
-                  <button
-                    onClick={() => setSelectedItem(null)}
-                    className="w-full py-5 rounded-3xl bg-[#F9C74F] text-slate-900 font-black text-lg shadow-xl shadow-[#F9C74F]/20 flex items-center justify-center gap-3 hover:bg-[#F8961E] transition-colors"
-                  >
-                    Continue 🍕
-                  </button>
-                </div>
-
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
 
       </main>
 

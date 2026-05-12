@@ -17,12 +17,12 @@ export function Onboarding() {
   const navigate = useNavigate();
   const last = i === slides.length - 1;
 
-  const next = () => (last ? navigate({ to: "/login" }) : setI(i + 1));
+  const next = () => (last ? navigate({ to: "/home" }) : setI(i + 1));
 
   return (
     <div className="min-h-screen bg-gradient-soft flex flex-col">
       <div className="flex justify-end p-6">
-        <Link to="/login" className="text-sm font-medium text-muted-foreground hover:text-primary">Skip</Link>
+        <Link to="/home" className="text-sm font-medium text-muted-foreground hover:text-primary">Skip</Link>
       </div>
       <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto text-center">
         <AnimatePresence mode="wait">

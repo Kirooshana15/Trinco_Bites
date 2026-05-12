@@ -182,7 +182,7 @@ export function Splash() {
           <h1
             className="text-5xl font-black tracking-tight leading-none"
             style={{
-              fontFamily: "'Georgia', 'Times New Roman', serif",
+              fontFamily: "var(--font-body)",
               color: "#813405",
               filter: `drop-shadow(0 2px 14px rgba(212,81,19,0.45))`,
             }}

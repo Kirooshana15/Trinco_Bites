@@ -82,6 +82,8 @@ export type Restaurant = {
   openingTime: string; // e.g. "09:00 AM"
   closingTime: string; // e.g. "11:00 PM"
   deliveryRadius: number; // in km
+  deliveryAvailable: boolean;
+  deliveryFee?: number;
   categories: string[];
   menu: FoodItem[];
 };
@@ -108,11 +110,11 @@ export const categories: Category[] = [
 ];
 
 const sharedMenu: FoodItem[] = [
-  { id: "sh-fr1", name: "Chicken Fried Rice", price: 900, image: frChicken, description: "Classic wok-fried rice with tender chicken.", rating: 4.7, category: "Fried Rice" },
-  { id: "sh-fr2", name: "Beef Fried Rice", price: 1150, image: frBeef, description: "Savory beef strips with fried rice.", rating: 4.7, category: "Fried Rice" },
-  { id: "sh-fr3", name: "Egg Fried Rice", price: 750, image: frEgg, description: "Simple and delicious egg fried rice.", rating: 4.5, category: "Fried Rice" },
+  { id: "sh-fr1", name: "Chicken Fried Rice", price: 900, image: frChicken, description: "Classic wok-fried rice with tender chicken.", rating: 3.2, category: "Fried Rice" },
+  { id: "sh-fr2", name: "Beef Fried Rice", price: 1150, image: frBeef, description: "Savory beef strips with fried rice.", rating: 4.1, category: "Fried Rice" },
+  { id: "sh-fr3", name: "Egg Fried Rice", price: 750, image: frEgg, description: "Simple and delicious egg fried rice.", rating: 2.8, category: "Fried Rice" },
   { id: "sh-fr4", name: "Prawn Fried Rice", price: 1350, image: frPrawn, description: "Fresh prawns with aromatic fried rice.", rating: 4.9, popular: true, category: "Fried Rice" },
-  { id: "sh-fr5", name: "Seafood Fried Rice", price: 1200, image: frSeafood, description: "Wok-tossed rice with fresh catch.", rating: 4.6, category: "Fried Rice" },
+  { id: "sh-fr5", name: "Seafood Fried Rice", price: 1200, image: frSeafood, description: "Wok-tossed rice with fresh catch.", rating: 3.5, category: "Fried Rice" },
   { id: "sh-fr6", name: "Veg Fried Rice", price: 700, image: frVeg, description: "Fresh garden vegetables with rice.", rating: 4.4, category: "Fried Rice" },
   { id: "sh-br1", name: "Chicken Biryani", price: 1050, image: brChicken, description: "Slow-cooked basmati with tender chicken.", rating: 4.8, popular: true, category: "Briyani" },
   { id: "sh-br2", name: "Beef Biryani", price: 1250, image: brBeef, description: "Rich and spicy beef biryani.", rating: 4.7, category: "Briyani" },
@@ -140,7 +142,7 @@ export const restaurants: Restaurant[] = [
     id: "trinco-spice",
     name: "Trinco Spice House",
     image: rest1,
-    rating: 4.8,
+    rating: 3.8,
     deliveryTime: "20-30 min",
     category: "Srilankan Foods",
     location: "Dockyard Rd, Trincomalee",
@@ -159,15 +161,17 @@ export const restaurants: Restaurant[] = [
     id: "ocean-pearl",
     name: "Ocean Pearl Seafood",
     image: rest2,
-    rating: 4.7,
+    rating: 4.9,
     deliveryTime: "25-35 min",
     category: "Seafood",
     location: "Uppuveli Beach, Trincomalee",
     hasOffer: false,
-    openingTime: "10:00 AM",
-    closingTime: "11:00 PM",
-    deliveryRadius: 12,
-    categories: ["Seafood", "Soft Drinks", "Rice", ...commonCategories],
+    openingTime: "07:00 AM",
+    closingTime: "09:00 PM",
+    deliveryRadius: 10,
+    deliveryAvailable: true,
+    deliveryFee: 150,
+    categories: ["Srilankan Foods", "Noodles", "Kottu", "Omlete", "Juice", ...commonCategories],
     menu: [
       { id: "f3", name: "Grilled Seer Fish", price: 1450, image: food3, description: "Charcoal grilled with lemon butter.", rating: 4.9, popular: true, category: "Seafood" },
       ...sharedMenu,
@@ -177,16 +181,18 @@ export const restaurants: Restaurant[] = [
     id: "biryani-palace",
     name: "Biryani Palace",
     image: rest3,
-    rating: 4.6,
+    rating: 4.1,
     deliveryTime: "30-40 min",
     category: "Briyani",
     location: "Main St, Trincomalee",
     hasOffer: true,
     offerText: "Free Delivery",
-    openingTime: "11:00 AM",
-    closingTime: "10:30 PM",
-    deliveryRadius: 10,
-    categories: ["Briyani", "Rice", "Soft Drinks", ...commonCategories],
+    openingTime: "08:00 AM",
+    closingTime: "11:00 PM",
+    deliveryRadius: 12,
+    deliveryAvailable: true,
+    deliveryFee: 250,
+    categories: ["Briyani", "Kottu", "Fried Rice", "Seafood", "Soft Drinks", ...commonCategories],
     menu: [
       { id: "f5", name: "Chicken Biryani", price: 1050, image: brChicken, description: "Slow-cooked basmati with tender chicken.", rating: 4.8, popular: true, category: "Briyani" },
       { id: "f6", name: "Mutton Biryani", price: 1350, image: food2, description: "Aromatic spices and succulent mutton.", rating: 4.9, category: "Briyani" },
@@ -197,16 +203,18 @@ export const restaurants: Restaurant[] = [
     id: "burger-co",
     name: "Trinco Burger Co.",
     image: rest4,
-    rating: 4.5,
+    rating: 2.5,
     deliveryTime: "15-25 min",
     category: "Burgers",
     location: "Inner Harbour Rd",
     hasOffer: true,
     offerText: "Buy 1 Get 1",
     openingTime: "09:00 AM",
-    closingTime: "11:00 PM",
-    deliveryRadius: 6,
-    categories: ["Burgers", "Pizza", "Chinese Food", ...commonCategories],
+    closingTime: "11:30 PM",
+    deliveryRadius: 8,
+    deliveryAvailable: false,
+    deliveryFee: 0,
+    categories: ["Fried Rice", "Nasi Goreng", "Noodles", "Chinese Rice", "Juice", ...commonCategories],
     menu: [
       { id: "f7", name: "Double Cheeseburger", price: 1250, image: food4, description: "Two beef patties, melty cheese, fries on the side.", rating: 4.7, popular: true, category: "Burgers" },
       { id: "f8", name: "Margherita Pizza", price: 1450, image: food5, description: "Wood-fired with fresh basil & mozzarella.", rating: 4.5, category: "Pizza" },
@@ -216,3 +224,11 @@ export const restaurants: Restaurant[] = [
 ];
 
 export const findRestaurant = (id: string) => restaurants.find((r) => r.id === id);
+
+export const findFoodItem = (foodId: string) => {
+  for (const r of restaurants) {
+    const item = r.menu.find((f) => f.id === foodId);
+    if (item) return { food: item, restaurant: r };
+  }
+  return null;
+};

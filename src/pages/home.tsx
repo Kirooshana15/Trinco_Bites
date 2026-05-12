@@ -7,18 +7,23 @@ import {
   Flame,
   Star,
   Clock,
+  Leaf,
+  ShieldCheck,
 } from "lucide-react";
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useSearch } from "@/context/SearchContext";
+import { Slider } from "@/components/ui/slider";
 
 import { Navbar } from "@/components/Navbar";
 import { RestaurantCard } from "@/components/RestaurantCard";
 import { Footer } from "@/components/Footer";
 import { useLocationState } from "@/context/LocationContext";
 import { OffersBadge } from "@/components/OffersBadge";
+import { RatingSliderFilter } from "@/components/RatingSlider";
 
 import { restaurants, categories, type Restaurant } from "@/utils/data/mock";
+import { isRestaurantOpen } from "@/utils/time";
 import homeBack from "@/utils/assets/home-back.jpg";
 
 /* ── Palette ─────────────────────────────────────────────────────── */
@@ -32,11 +37,10 @@ const C = {
 } as const;
 
 const extraFilters = [
-  "Offers",
+  "Open Now",
   "Under 30 min",
   "Highest rated",
   "Rating",
-  "Price",
 ] as const;
 
 type ExtraFilter = (typeof extraFilters)[number] | "All";
@@ -141,7 +145,7 @@ function CatChip({
         className="text-[11px] font-semibold leading-tight text-center"
         style={{
           color: active ? C.burnt : C.brown,
-          fontFamily: "Georgia, serif",
+          fontFamily: "var(--font-body)",
           maxWidth: 64,
         }}
       >
@@ -156,10 +160,12 @@ function FilterChip({
   label,
   active,
   onClick,
+  icon,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  icon?: React.ReactNode;
 }) {
   return (
     <motion.button
@@ -167,7 +173,7 @@ function FilterChip({
       whileTap={{ scale: 0.93 }}
       className="relative flex-shrink-0 px-4 py-2 rounded-full text-xs font-bold tracking-wide overflow-hidden"
       style={{
-        fontFamily: "Georgia, serif",
+        fontFamily: "var(--font-body)",
         color: active ? C.cream : C.brown,
         border: active ? "none" : "1.5px solid rgba(129,52,5,0.16)",
         background: active ? "transparent" : "rgba(255,252,245,0.85)",
@@ -182,7 +188,10 @@ function FilterChip({
           }}
         />
       )}
-      <span className="relative z-10">{label}</span>
+      <span className="relative z-10 flex items-center gap-1.5">
+        {icon}
+        {label}
+      </span>
     </motion.button>
   );
 }
@@ -192,55 +201,110 @@ function parseDeliveryMinutes(deliveryTime: string) {
   return values.length > 0 ? Math.max(...values) : Number.POSITIVE_INFINITY;
 }
 
-function getAveragePrice(restaurant: Restaurant) {
-  return (
-    restaurant.menu.reduce((sum, item) => sum + item.price, 0) /
-    restaurant.menu.length
-  );
-}
-
 /* ── Home ───────────────────────────────────────────────────────── */
 export function Home() {
   const navigate = useNavigate();
   const { selectedLocation } = useLocationState();
   const { searchQuery, setSearchQuery } = useSearch();
   const [cat, setCat] = useState("All");
-  const [extraFilter, setExtraFilter] = useState<ExtraFilter>("All");
+  const [selectedFilters, setSelectedFilters] = useState<ExtraFilter[]>([]);
+  const [minRating, setMinRating] = useState(0);
+  const [expandedFilter, setExpandedFilter] = useState<ExtraFilter | null>(null);
+  const [dietaryPlan, setDietaryPlan] = useState<"All" | "Veg" | "Non-Veg" | "Halal">("All");
+
+  const toggleFilter = (filter: ExtraFilter) => {
+    if (filter === "All") {
+      setSelectedFilters([]);
+      setMinRating(0);
+      setExpandedFilter(null);
+      return;
+    }
+
+    // Set as expanded when clicked, unless it's already expanded (then collapse)
+    setExpandedFilter(prev => prev === filter ? null : filter);
+
+    setSelectedFilters((prev) => {
+      const isSelected = prev.includes(filter);
+      if (isSelected) {
+        // If it was already selected, and we click it again, and it's NOT the expanded one, 
+        // we might want to keep it selected but just collapse it?
+        // Actually, let's stick to standard toggle:
+        const next = prev.filter((f) => f !== filter);
+        if (filter === "Rating") setMinRating(0);
+        return next;
+      } else {
+        if (filter === "Rating" && minRating === 0) setMinRating(4.0);
+        return [...prev, filter];
+      }
+    });
+  };
 
   const list = useMemo(
     () => {
-      const filtered = restaurants.filter(
+      let filtered = restaurants.filter(
         (r) =>
           (cat === "All" || r.category === cat) &&
           r.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-      const nextList = filtered.filter((restaurant) => {
-        if (extraFilter === "Offers") {
-          return restaurant.hasOffer;
+      // Apply all active filters
+      filtered = filtered.filter((restaurant) => {
+        const matchesRating = restaurant.rating >= minRating;
+        
+        // Check "Under 30 min" filter
+        const isUnder30Active = selectedFilters.includes("Under 30 min");
+        if (isUnder30Active && parseDeliveryMinutes(restaurant.deliveryTime) > 30) {
+          return false;
         }
-        if (extraFilter === "Under 30 min") {
-          return parseDeliveryMinutes(restaurant.deliveryTime) <= 30;
+
+        // Open Now filter
+        if (selectedFilters.includes("Open Now") && !isRestaurantOpen(restaurant)) {
+          return false;
         }
-        if (extraFilter === "Rating") {
-          return restaurant.rating >= 4.7;
+
+        // Dietary filter (Heuristic: check menu and categories for veg/paneer keywords)
+        if (dietaryPlan === "Veg") {
+          const hasVeg = restaurant.menu.some(item => 
+            item.name.toLowerCase().includes("veg") || 
+            item.name.toLowerCase().includes("paneer") ||
+            item.category.toLowerCase().includes("veg")
+          );
+          if (!hasVeg) return false;
+        } else if (dietaryPlan === "Non-Veg") {
+          const hasNonVeg = restaurant.menu.some(item => 
+            item.name.toLowerCase().includes("chicken") || 
+            item.name.toLowerCase().includes("beef") || 
+            item.name.toLowerCase().includes("mutton") ||
+            item.name.toLowerCase().includes("fish") ||
+            item.name.toLowerCase().includes("prawn") ||
+            item.name.toLowerCase().includes("seafood")
+          );
+          if (!hasNonVeg) return false;
+        } else if (dietaryPlan === "Halal") {
+          const isHalal = restaurant.name.toLowerCase().includes("halal") || 
+            restaurant.category.toLowerCase().includes("halal") ||
+            restaurant.menu.some(item => item.name.toLowerCase().includes("halal"));
+          if (!isHalal) return false;
         }
-        return true;
+
+        // Check specific rating threshold if "Rating" chip is active
+        // (This is separate from the manual slider minRating)
+        const isRatingActive = selectedFilters.includes("Rating");
+        if (isRatingActive && restaurant.rating < 4.5 && minRating === 0) {
+          return false;
+        }
+
+        return matchesRating;
       });
 
-      if (extraFilter === "Highest rated") {
-        return [...nextList].sort((a, b) => b.rating - a.rating);
+      // Handle Sorting filters (only one sorting filter can effectively be applied last)
+      if (selectedFilters.includes("Highest rated")) {
+        filtered = [...filtered].sort((a, b) => b.rating - a.rating);
       }
 
-      if (extraFilter === "Price") {
-        return [...nextList].sort(
-          (a, b) => getAveragePrice(a) - getAveragePrice(b)
-        );
-      }
-
-        return nextList;
+      return filtered;
     },
-    [searchQuery, cat, extraFilter]
+    [searchQuery, cat, selectedFilters, minRating]
   );
 
   return (
@@ -248,7 +312,7 @@ export function Home() {
       className="flex min-h-screen flex-col"
       style={{
         background: C.bg,
-        fontFamily: "Georgia, 'Times New Roman', serif",
+        fontFamily: "var(--font-body)",
       }}
     >
       {/* NAVBAR */}
@@ -416,15 +480,70 @@ export function Home() {
               <div className="flex gap-2 overflow-x-auto flex-1" style={{ scrollbarWidth: "none" }}>
                 <FilterChip
                   label="All Filters"
-                  active={extraFilter === "All"}
-                  onClick={() => setExtraFilter("All")}
+                  active={selectedFilters.length === 0 && minRating === 0 && dietaryPlan === "All"}
+                  onClick={() => {
+                    toggleFilter("All");
+                    setDietaryPlan("All");
+                  }}
                 />
+
+                {/* FOOD PREFERENCE GROUP */}
+                <div 
+                  className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-full whitespace-nowrap transition-all"
+                  style={{
+                    background: "rgba(129,52,5,0.04)",
+                    border: "1.5px solid rgba(129,52,5,0.08)",
+                  }}
+                >
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setDietaryPlan(dietaryPlan === "Veg" ? "All" : "Veg")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
+                      style={{
+                        background: dietaryPlan === "Veg" ? "rgba(45,106,79,0.12)" : "transparent",
+                        border: dietaryPlan === "Veg" ? "1px solid rgba(45,106,79,0.4)" : "1px solid transparent",
+                        color: C.brown,
+                      }}
+                    >
+                      <Leaf size={11} />
+                      Veg
+                    </button>
+
+                    <button
+                      onClick={() => setDietaryPlan(dietaryPlan === "Non-Veg" ? "All" : "Non-Veg")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
+                      style={{
+                        background: dietaryPlan === "Non-Veg" ? "rgba(212,81,19,0.12)" : "transparent",
+                        border: dietaryPlan === "Non-Veg" ? "1px solid rgba(212,81,19,0.4)" : "1px solid transparent",
+                        color: C.brown,
+                      }}
+                    >
+                      <Flame size={11} />
+                      Non-Veg
+                    </button>
+
+                    <button
+                      onClick={() => setDietaryPlan(dietaryPlan === "Halal" ? "All" : "Halal")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
+                      style={{
+                        background: dietaryPlan === "Halal" ? "rgba(129,52,5,0.08)" : "transparent",
+                        border: dietaryPlan === "Halal" ? "1px solid rgba(129,52,5,0.2)" : "1px solid transparent",
+                        color: C.brown,
+                      }}
+                    >
+                      <ShieldCheck size={11} />
+                      Halal
+                    </button>
+                  </div>
+                </div>
+
                 {extraFilters.map((filter) => (
                   <FilterChip
                     key={filter}
                     label={filter}
-                    active={extraFilter === filter}
-                    onClick={() => setExtraFilter(filter)}
+                    icon={filter === "Open Now" ? <Clock size={12} /> : null}
+                    active={selectedFilters.includes(filter) || expandedFilter === filter}
+                    onClick={() => toggleFilter(filter)}
                   />
                 ))}
               </div>
@@ -436,6 +555,18 @@ export function Home() {
               </button>
             </div>
           </div>
+
+          {/* RATING SLIDER FILTER SECTION */}
+          <RatingSliderFilter 
+            extraFilter={expandedFilter === "Rating" ? "Rating" : "All"}
+            setExtraFilter={(val) => {
+              if (val === "All") {
+                setExpandedFilter(null);
+              }
+            }}
+            minRating={minRating}
+            setMinRating={setMinRating}
+          />
         </section>
 
         {/* Restaurants */}

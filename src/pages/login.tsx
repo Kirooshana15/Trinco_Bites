@@ -1,10 +1,11 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, ArrowRight, Mail } from "lucide-react";
 import { useState } from "react";
 import type { ElementType, FormEvent, ReactNode } from "react";
 import logo from "@/utils/assets/logo.png";
 import { Footer } from "@/components/Footer";
+import { useAuth } from "@/context/AuthContext";
 
 /* ── Palette ─────────────────────────────────────────────────────── */
 const C = {
@@ -21,16 +22,21 @@ function Field({
   label,
   type,
   placeholder,
+  value: controlledValue,
+  onChange,
 }: {
   icon: ElementType;
   label: string;
   type: string;
   placeholder: string;
+  value?: string;
+  onChange?: (value: string) => void;
 }) {
   const [focused, setFocused] = useState(false);
-  const [value, setValue] = useState("");
+  const [innerValue, setInnerValue] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const isPwd = type === "password";
+  const value = controlledValue ?? innerValue;
   const lifted = focused || value.length > 0;
   const realType = isPwd ? (showPwd ? "text" : "password") : type;
 
@@ -79,11 +85,15 @@ function Field({
         placeholder={lifted ? placeholder : ""}
         required
         value={value}
-        onChange={e => setValue(e.target.value)}
+        onChange={e => {
+          const nextValue = e.target.value;
+          if (onChange) onChange(nextValue);
+          else setInnerValue(nextValue);
+        }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         className="flex-1 bg-transparent outline-none text-sm px-2 pb-1 pt-5"
-        style={{ color: C.brown, fontFamily: "Georgia, serif" }}
+        style={{ color: C.brown, fontFamily: "var(--font-body)" }}
       />
 
       {/* password toggle */}
@@ -113,7 +123,7 @@ function SocialBtn({ children, onClick }: { children: ReactNode; onClick?: () =>
         background: "rgba(248,221,164,0.18)",
         border: "1.5px solid rgba(129,52,5,0.15)",
         color: C.brown,
-        fontFamily: "Georgia, serif",
+        fontFamily: "var(--font-body)",
       }}
     >
       {children}
@@ -121,14 +131,18 @@ function SocialBtn({ children, onClick }: { children: ReactNode; onClick?: () =>
   );
 }
 
+
 /* ── Main ────────────────────────────────────────────────────────── */
 export function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    login(email || "guest@example.com");
     setTimeout(() => navigate({ to: "/home" }), 950);
   };
 
@@ -158,7 +172,7 @@ export function Login() {
             <h1
               className="text-[2rem] font-black leading-tight"
               style={{
-                fontFamily: "Georgia, 'Times New Roman', serif",
+                fontFamily: "var(--font-body)",
                 background: `linear-gradient(135deg, ${C.brown} 0%, ${C.burnt} 55%, ${C.orange} 100%)`,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
@@ -168,7 +182,7 @@ export function Login() {
             </h1>
             <p
               className="mt-1.5 text-sm"
-              style={{ color: "rgba(129,52,5,0.50)", fontFamily: "Georgia, serif" }}
+              style={{ color: "rgba(129,52,5,0.50)", fontFamily: "var(--font-body)" }}
             >
               Sign in to keep ordering your favorites.
             </p>
@@ -187,7 +201,15 @@ export function Login() {
           >
             <form onSubmit={handleSubmit} className="space-y-3">
 
-              <Field icon={Mail} label="Email address" type="email" placeholder="you@email.com" />
+              <Field
+                icon={Mail}
+                label="Email address"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={setEmail}
+              />
+              <Field icon={Phone} label="Phone number" type="tel" placeholder="+94 77 123 4567" />
               <Field icon={Lock} label="Password" type="password" placeholder="••••••••" />
 
               {/* forgot */}
@@ -214,7 +236,7 @@ export function Login() {
                   color: C.cream,
                   boxShadow: loading ? "none" : `0 4px 22px rgba(212,81,19,0.38), inset 0 1px 0 rgba(248,221,164,0.15)`,
                   transition: "background 0.3s",
-                  fontFamily: "Georgia, serif",
+                  fontFamily: "var(--font-body)",
                   letterSpacing: "0.10em",
                 }}
               >
@@ -252,10 +274,10 @@ export function Login() {
               </motion.button>
 
               {/* register */}
-              <p className="text-center text-xs pt-1" style={{ color: "rgba(129, 53, 5, 0.75)", fontFamily: "Georgia, serif" }}>
-                New here?{" "}
-                <Link to="/register" className="font-bold underline underline-offset-2" style={{ color: C.burnt }}>
-                  Create an account
+              <p className="text-center text-xs pt-1" style={{ color: "rgba(129, 53, 5, 0.75)", fontFamily: "var(--font-body)" }}>
+                Don't have an account?{" "}
+                <Link to="/signup" className="font-bold underline underline-offset-2" style={{ color: C.burnt }}>
+                  Create new account
                 </Link>
               </p>
             </form>
@@ -263,7 +285,7 @@ export function Login() {
             {/* ── Divider ───────────────────────────────────────── */}
             <div className="flex items-center gap-3 my-5">
               <span className="flex-1 h-px" style={{ background: "rgba(129, 53, 5, 0.6)" }} />
-              <span className="text-xs font-medium" style={{ color: "rgba(129, 53, 5, 0.75)", fontFamily: "Georgia, serif" }}>
+              <span className="text-xs font-medium" style={{ color: "rgba(129, 53, 5, 0.75)", fontFamily: "var(--font-body)" }}>
                 or sign in with
               </span>
               <span className="flex-1 h-px" style={{ background: "rgba(129, 53, 5, 0.6)" }} />
@@ -272,7 +294,13 @@ export function Login() {
             {/* ── Social buttons ────────────────────────────────── */}
             <div className="flex gap-3">
               {/* Google */}
-              <SocialBtn>
+              <SocialBtn onClick={() => {
+                setLoading(true);
+                setTimeout(() => {
+                  login("user.google@gmail.com");
+                  navigate({ to: "/home" });
+                }, 1200);
+              }}>
                 <img
                   src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg"
                   alt="Google"
@@ -280,16 +308,9 @@ export function Login() {
                 />
                 Google
               </SocialBtn>
-
-              {/* Facebook */}
-              <SocialBtn>
-                <svg viewBox="0 0 24 24" fill="#1877F2" className="w-4 h-4">
-                  <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879v-6.987H7.898V12h2.54V9.797c0-2.506 1.493-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.892h-2.33v6.987C18.343 21.128 22 16.991 22 12z" />
-                </svg>
-                Facebook
-              </SocialBtn>
             </div>
           </motion.div>
+
 
           {/* ── Footer whisper ────────────────────────────────────── */}
 

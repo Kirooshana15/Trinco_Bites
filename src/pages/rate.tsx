@@ -17,7 +17,7 @@ export function Rate() {
       <Navbar />
       <div className="flex-1">
         <div className="mx-auto max-w-md px-4 pt-12">
-          <h1 className="text-3xl font-black text-[#813405] text-center mb-2" style={{ fontFamily: "'Cormorant Garamond', serif" }}>Rate your experience</h1>
+          <h1 className="text-3xl font-black text-[#813405] text-center mb-2" style={{ fontFamily: "var(--font-heading)" }}>Rate your experience</h1>
           <p className="text-[#813405]/60 font-black uppercase tracking-widest text-[10px] text-center mb-10">Trinco Spice House</p>
 
           <div className="bg-white rounded-[40px] shadow-2xl p-8 border border-[#F8DDA4]/40 relative overflow-hidden">

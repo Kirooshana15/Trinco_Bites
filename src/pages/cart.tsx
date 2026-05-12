@@ -4,9 +4,16 @@ import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useCart } from "@/context/CartContext";
+import { findRestaurant } from "@/utils/data/mock";
+import { isRestaurantOpen } from "@/utils/time";
 
 export function Cart() {
   const { items, total, setQty, remove } = useCart();
+  const closedRestaurantItems = items.filter((item) => {
+    const restaurant = findRestaurant(item.restaurantId);
+    return restaurant ? !isRestaurantOpen(restaurant) : false;
+  });
+  const hasClosedRestaurantItems = closedRestaurantItems.length > 0;
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-soft">
@@ -52,14 +59,25 @@ export function Cart() {
             </div>
 
             <div className="mt-8 bg-card rounded-3xl shadow-card p-5 space-y-3">
+              {hasClosedRestaurantItems && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+                  Some items are from a restaurant that is currently closed. Remove them before checkout.
+                </div>
+              )}
               <Row label="Subtotal" value={total} />
               <Row label="Delivery" value={250} />
               <div className="border-t border-border pt-3">
                 <Row label="Total" value={total + 250} bold />
               </div>
-              <Link to="/checkout" className="block text-center w-full bg-gradient-warm text-primary-foreground font-semibold py-3.5 rounded-xl shadow-card">
-                Proceed to Checkout
-              </Link>
+              {hasClosedRestaurantItems ? (
+                <div className="block text-center w-full bg-slate-300 text-slate-500 font-semibold py-3.5 rounded-xl shadow-card cursor-not-allowed">
+                  Restaurant Closed
+                </div>
+              ) : (
+                <Link to="/checkout" className="block text-center w-full bg-gradient-warm text-primary-foreground font-semibold py-3.5 rounded-xl shadow-card">
+                  Proceed to Checkout
+                </Link>
+              )}
             </div>
           </>
         )}

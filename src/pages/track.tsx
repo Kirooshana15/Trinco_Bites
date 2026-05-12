@@ -7,6 +7,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useAuth } from "@/context/AuthContext";
+import { useNavigate } from "@tanstack/react-router";
+import { useOrders } from "@/context/OrderContext";
 
 // ── Order steps ──────────────────────────────────────────────────────────────
 const steps = [
@@ -25,6 +28,46 @@ export function Track() {
   const bikeRef = useRef<SVGCircleElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const riderAnim = useAnimation();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const { orders, latestOrder } = useOrders();
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate({ to: "/login" });
+    }
+  }, [isAuthenticated, navigate]);
+
+  if (!isAuthenticated) return null;
+  if (!latestOrder) {
+    return (
+      <div className="flex min-h-screen flex-col" style={{ background: "#F7F0E3" }}>
+        <Navbar />
+        <div className="mx-auto flex w-full max-w-2xl flex-1 items-center justify-center px-4 py-16">
+          <div
+            className="w-full rounded-[28px] p-8 text-center"
+            style={{
+              background: "linear-gradient(160deg,#ffffff,#FDF6EC)",
+              border: "1px solid rgba(248,221,164,0.4)",
+              boxShadow: "0 8px 40px rgba(129,52,5,0.08)",
+            }}
+          >
+            <h1 className="text-2xl font-black text-[#813405]">My Orders</h1>
+            <p className="mt-2 text-sm font-semibold text-[#813405]/55">
+              You have no previous orders yet.
+            </p>
+            <Link
+              to="/home"
+              className="mt-6 inline-flex rounded-2xl bg-[#D45113] px-6 py-3 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-[#D45113]/25"
+            >
+              Start Ordering
+            </Link>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   // ── Auto advance steps ────────────────────────────────────────────────────
   useEffect(() => {
@@ -66,7 +109,7 @@ export function Track() {
 
   const outForDelivery = active >= 1;
   const delivered = active === steps.length - 1;
-  const orderId = useRef(`TRC-${Math.floor(Math.random() * 9000 + 1000)}`);
+  const currentOrder = latestOrder;
 
   return (
     <div className="flex min-h-screen flex-col" style={{ background: "#F7F0E3" }}>
@@ -79,7 +122,7 @@ export function Track() {
           <div>
             <h1 className="text-2xl font-black text-[#813405]">Track Order</h1>
             <p className="text-xs text-[#813405]/40 font-semibold mt-0.5">
-              Order #{orderId.current}
+              Order #{currentOrder.id}
             </p>
           </div>
           {outForDelivery && !delivered && (
@@ -397,6 +440,105 @@ export function Track() {
         </div>
 
         {/* ── View receipt ──────────────────────────────────────────────────── */}
+        <div
+          className="rounded-[24px] p-5"
+          style={{
+            background: "linear-gradient(160deg,#ffffff,#FDF6EC)",
+            border: "1px solid rgba(248,221,164,0.4)",
+            boxShadow: "0 4px 24px rgba(129,52,5,0.06)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-[#813405]">Latest Order Details</h2>
+              <p className="mt-0.5 text-[11px] font-semibold text-[#813405]/45">
+                {new Date(currentOrder.createdAt).toLocaleString()}
+              </p>
+            </div>
+            <span
+              className="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+              style={{ background: "rgba(212,81,19,0.1)", color: "#D45113" }}
+            >
+              {currentOrder.paymentMethod === "card" ? "Card Payment" : "Cash on Delivery"}
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-[#F8DDA4]/50 bg-white/80 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#813405]/45">Restaurant</p>
+              <p className="mt-1 text-sm font-black text-[#813405]">{currentOrder.restaurantName}</p>
+            </div>
+
+            <div className="rounded-2xl border border-[#F8DDA4]/50 bg-white/80 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#813405]/45">Delivery Address</p>
+              <p className="mt-1 text-sm font-bold text-[#813405]">{currentOrder.deliveryAddress}</p>
+            </div>
+
+            <div className="rounded-2xl border border-[#F8DDA4]/50 bg-white/80 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#813405]/45">Items</p>
+              <div className="mt-2 space-y-2">
+                {currentOrder.items.map((item, index) => (
+                  <div key={`${item.id}-${index}`} className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-[#813405]">
+                        {item.quantity}x {item.name}
+                        {item.selectedSize ? ` (${item.selectedSize})` : ""}
+                      </p>
+                      {item.selectedExtras && item.selectedExtras.length > 0 && (
+                        <p className="text-[11px] font-semibold text-[#813405]/55">
+                          Extras: {item.selectedExtras.map((extra) => extra.name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-sm font-black text-[#813405]">
+                      Rs {((item.customPrice || item.price) * item.quantity).toLocaleString()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl border border-[#F8DDA4]/50 bg-white/80 p-4">
+              <span className="text-sm font-black text-[#813405]">Order Total</span>
+              <span className="text-lg font-black text-[#D45113]">Rs {currentOrder.total.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {orders.length > 1 && (
+          <div
+            className="rounded-[24px] p-5"
+            style={{
+              background: "linear-gradient(160deg,#ffffff,#FDF6EC)",
+              border: "1px solid rgba(248,221,164,0.4)",
+              boxShadow: "0 4px 24px rgba(129,52,5,0.06)",
+            }}
+          >
+            <h2 className="text-lg font-black text-[#813405]">Previous Orders</h2>
+            <div className="mt-4 space-y-3">
+              {orders.slice(1).map((order) => (
+                <div
+                  key={order.id}
+                  className="rounded-2xl border border-[#F8DDA4]/50 bg-white/80 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-[#813405]">{order.restaurantName}</p>
+                      <p className="mt-1 text-[11px] font-semibold text-[#813405]/50">
+                        Order #{order.id} • {new Date(order.createdAt).toLocaleDateString()}
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold text-[#813405]/65">
+                        {order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}
+                      </p>
+                    </div>
+                    <p className="text-sm font-black text-[#D45113]">Rs {order.total.toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {delivered && (
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}

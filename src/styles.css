@@ -36,6 +36,8 @@
   --color-brand-cream: var(--brand-cream);
   --color-brand-olive: var(--brand-olive);
   --font-display: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --font-body: var(--font-display);
+  --font-heading: var(--font-display);
 }
 
 :root {
@@ -109,11 +111,15 @@
   html, body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family: var(--font-display);
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
+  }
+  body, button, input, textarea, select {
+    font-family: var(--font-body);
   }
   h1, h2, h3, h4 {
     letter-spacing: -0.02em;
+    font-family: var(--font-heading);
   }
 }
 
@@ -123,4 +129,6 @@
   .bg-gradient-soft { background-image: var(--gradient-soft); }
   .shadow-card { box-shadow: var(--shadow-card); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
+  .font-serif { font-family: var(--font-body); }
+  .font-sans { font-family: var(--font-body); }
 }

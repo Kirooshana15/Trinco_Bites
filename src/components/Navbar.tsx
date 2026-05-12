@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Home,
@@ -11,13 +11,28 @@ import {
 
 import { useCart } from "@/context/CartContext";
 import { useSearch } from "@/context/SearchContext";
+import { useAuth } from "@/context/AuthContext";
 import logo from "@/utils/assets/logo.png";
-import { OffersBadge } from "./OffersBadge";
+import { useState, useRef, useEffect } from "react";
+import { AnimatePresence } from "framer-motion";
 
 export function Navbar() {
   const { count } = useCart();
   const { searchQuery, setSearchQuery } = useSearch();
   const { pathname } = useLocation();
+  const { user, isAuthenticated, logout } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isOpen && !(event.target as Element).closest(".profile-dropdown-container")) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
 
   return (
     <>
@@ -67,13 +82,6 @@ export function Navbar() {
 
           {/* RIGHT */}
           <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
-            {/* OFFERS BADGE */}
-            <OffersBadge
-              variant="navbar"
-              count={3}
-              onClick={() => console.log("Offers clicked")}
-            />
-
             {/* CART */}
             <Link
               to="/cart"
@@ -109,18 +117,76 @@ export function Navbar() {
             </Link>
 
             {/* PROFILE */}
-            <button
-              className="
-                h-10 w-10 sm:h-11 sm:w-11
-                rounded-full
-                bg-white/70
-                border border-[#EADBC8]
-                flex items-center justify-center
-                hover:bg-white transition flex-shrink-0
-              "
-            >
-              <User className="h-4 w-4 sm:h-5 sm:w-5 text-[#813405]" />
-            </button>
+            <div className="relative profile-dropdown-container">
+              <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="
+                  h-10 w-10 sm:h-11 sm:w-11
+                  rounded-full
+                  bg-white/70
+                  border border-[#EADBC8]
+                  flex items-center justify-center
+                  hover:bg-white transition flex-shrink-0
+                "
+              >
+                <User className="h-4 w-4 sm:h-5 sm:w-5 text-[#813405]" />
+              </button>
+
+              <AnimatePresence>
+                {isOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-2 w-48 rounded-2xl bg-white shadow-xl border border-[#EADBC8] overflow-hidden z-50"
+                  >
+                    <div className="p-2 space-y-1">
+                      {isAuthenticated ? (
+                        <>
+                          <div className="px-3 py-2 border-b border-[#F8E7C4] mb-1">
+                            <p className="text-[10px] uppercase tracking-wider text-[#8A6A52] font-bold">Account</p>
+                            <p className="text-sm font-bold text-[#3B1700] truncate">{user?.name}</p>
+                          </div>
+                          <Link
+                            to="/track"
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-[#813405] hover:bg-[#F8E7C4]/50 transition"
+                          >
+                            My Orders
+                          </Link>
+                          <button
+                            onClick={() => {
+                              logout();
+                              setIsOpen(false);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-red-600 hover:bg-red-50 transition"
+                          >
+                            Logout
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <Link
+                            to="/checkout"
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-[#813405] hover:bg-[#F8E7C4]/50 transition"
+                          >
+                            Checkout
+                          </Link>
+                          <Link
+                            to="/login"
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-[#813405] hover:bg-[#F8E7C4]/50 transition"
+                          >
+                            Login
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </header>
