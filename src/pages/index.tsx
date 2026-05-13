@@ -244,8 +244,7 @@ export function Splash() {
         </motion.div>
       </motion.div>
 
-      {/* ── Bottom brand note ─────────────────────────────────────── */}
-      <Footer />
+
     </div>
   );
 }

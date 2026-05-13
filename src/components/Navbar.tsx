@@ -62,22 +62,16 @@ export function Navbar() {
             </div>
           </Link>
 
-          {/* CENTER */}
-          <div className="hidden md:flex items-center gap-4">
-
-
-            {/* SEARCH BAR (LAPTOP VIEW) */}
-            <div className="hidden lg:flex items-center gap-2 bg-white/70 border border-[#EADBC8] rounded-full px-4 py-2 w-64 focus-within:bg-white focus-within:border-[#D45113] transition-all shadow-sm">
-              <Search className="h-4 w-4 text-[#813405]" />
-              <input
-                type="text"
-                placeholder="Search food..."
-                className="bg-transparent outline-none text-xs w-full text-[#813405] placeholder-[#8A6A52] font-serif"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
+          {/* CENTER: SEARCH BAR (RESPONSIVE) */}
+          <div className="flex items-center gap-2 bg-white/70 border border-[#EADBC8] rounded-full px-3 py-1.5 sm:px-4 sm:py-2 w-32 sm:w-48 md:w-64 focus-within:bg-white focus-within:border-[#D45113] transition-all shadow-sm mx-auto">
+            <Search className="h-3 w-3 sm:h-4 sm:w-4 text-[#813405]" />
+            <input
+              type="text"
+              placeholder="Search..."
+              className="bg-transparent outline-none text-[10px] sm:text-xs w-full text-[#813405] placeholder-[#8A6A52] font-serif"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
 
           {/* RIGHT */}

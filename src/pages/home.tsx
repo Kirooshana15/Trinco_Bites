@@ -9,6 +9,7 @@ import {
   Clock,
   Leaf,
   ShieldCheck,
+  ArrowRight,
 } from "lucide-react";
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -21,6 +22,10 @@ import { Footer } from "@/components/Footer";
 import { useLocationState } from "@/context/LocationContext";
 import { OffersBadge } from "@/components/OffersBadge";
 import { RatingSliderFilter } from "@/components/RatingSlider";
+import { TopRatedRestaurants } from "@/components/TopRatedRestaurants";
+import { OffersBannerCarousel } from "@/components/OffersBannerCarousel";
+import { PopularNearYou } from "@/components/PopularNearYou";
+import { RecentlyAdded } from "@/components/RecentlyAdded";
 
 import { restaurants, categories, type Restaurant } from "@/utils/data/mock";
 import { isRestaurantOpen } from "@/utils/time";
@@ -114,7 +119,7 @@ function CatChip({
       className="flex flex-col items-center flex-shrink-0 gap-1.5"
       style={{ minWidth: 60 }}
     >
-      {/* Emoji circle */}
+      {/* Image circle */}
       <motion.div
         animate={{
           background: active
@@ -220,15 +225,11 @@ export function Home() {
       return;
     }
 
-    // Set as expanded when clicked, unless it's already expanded (then collapse)
     setExpandedFilter(prev => prev === filter ? null : filter);
 
     setSelectedFilters((prev) => {
       const isSelected = prev.includes(filter);
       if (isSelected) {
-        // If it was already selected, and we click it again, and it's NOT the expanded one, 
-        // we might want to keep it selected but just collapse it?
-        // Actually, let's stick to standard toggle:
         const next = prev.filter((f) => f !== filter);
         if (filter === "Rating") setMinRating(0);
         return next;
@@ -247,33 +248,29 @@ export function Home() {
           r.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-      // Apply all active filters
       filtered = filtered.filter((restaurant) => {
         const matchesRating = restaurant.rating >= minRating;
-        
-        // Check "Under 30 min" filter
+
         const isUnder30Active = selectedFilters.includes("Under 30 min");
         if (isUnder30Active && parseDeliveryMinutes(restaurant.deliveryTime) > 30) {
           return false;
         }
 
-        // Open Now filter
         if (selectedFilters.includes("Open Now") && !isRestaurantOpen(restaurant)) {
           return false;
         }
 
-        // Dietary filter (Heuristic: check menu and categories for veg/paneer keywords)
         if (dietaryPlan === "Veg") {
-          const hasVeg = restaurant.menu.some(item => 
-            item.name.toLowerCase().includes("veg") || 
+          const hasVeg = restaurant.menu.some(item =>
+            item.name.toLowerCase().includes("veg") ||
             item.name.toLowerCase().includes("paneer") ||
             item.category.toLowerCase().includes("veg")
           );
           if (!hasVeg) return false;
         } else if (dietaryPlan === "Non-Veg") {
-          const hasNonVeg = restaurant.menu.some(item => 
-            item.name.toLowerCase().includes("chicken") || 
-            item.name.toLowerCase().includes("beef") || 
+          const hasNonVeg = restaurant.menu.some(item =>
+            item.name.toLowerCase().includes("chicken") ||
+            item.name.toLowerCase().includes("beef") ||
             item.name.toLowerCase().includes("mutton") ||
             item.name.toLowerCase().includes("fish") ||
             item.name.toLowerCase().includes("prawn") ||
@@ -281,14 +278,12 @@ export function Home() {
           );
           if (!hasNonVeg) return false;
         } else if (dietaryPlan === "Halal") {
-          const isHalal = restaurant.name.toLowerCase().includes("halal") || 
+          const isHalal = restaurant.name.toLowerCase().includes("halal") ||
             restaurant.category.toLowerCase().includes("halal") ||
             restaurant.menu.some(item => item.name.toLowerCase().includes("halal"));
           if (!isHalal) return false;
         }
 
-        // Check specific rating threshold if "Rating" chip is active
-        // (This is separate from the manual slider minRating)
         const isRatingActive = selectedFilters.includes("Rating");
         if (isRatingActive && restaurant.rating < 4.5 && minRating === 0) {
           return false;
@@ -297,14 +292,13 @@ export function Home() {
         return matchesRating;
       });
 
-      // Handle Sorting filters (only one sorting filter can effectively be applied last)
       if (selectedFilters.includes("Highest rated")) {
         filtered = [...filtered].sort((a, b) => b.rating - a.rating);
       }
 
       return filtered;
     },
-    [searchQuery, cat, selectedFilters, minRating]
+    [searchQuery, cat, selectedFilters, minRating, dietaryPlan]
   );
 
   return (
@@ -398,15 +392,17 @@ export function Home() {
                   WebkitTextFillColor: "transparent",
                 }}
               >
-                Trinco’s
+                Trinco's
                 <br />
                 Finest meals, Delivered hot.
               </motion.h1>
 
+
+
             </div>
 
             {/* Stats */}
-            <div className="mt-6 flex flex-wrap gap-2">
+            <div className="mt-8 flex flex-wrap gap-2">
               <StatBadge
                 icon={Flame}
                 value="30+"
@@ -431,32 +427,19 @@ export function Home() {
           </div>
         </section>
 
-        {/* Categories & Mobile Search */}
-        <section className="relative z-10 mx-auto max-w-6xl px-4 mt-6">
-          
-          {/* MOBILE SEARCH BAR */}
-          <div className="lg:hidden mb-6">
-            <div 
-              className="flex items-center gap-3 rounded-2xl px-4 py-3.5"
-              style={{
-                background: "rgba(255,252,245,0.94)",
-                backdropFilter: "blur(18px)",
-                border: "1.5px solid rgba(248,221,164,0.35)",
-              }}
-            >
-              <Search size={16} style={{ color: C.burnt }} />
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search restaurants in Trinco…"
-                className="flex-1 bg-transparent outline-none text-sm font-serif"
-                style={{ color: C.brown }}
-              />
-            </div>
+        {/* OFFERS BANNER CAROUSEL */}
+        <OffersBannerCarousel />
+
+        {/* 3. FOOD CATEGORIES */}
+        <section className="relative z-10 mx-auto max-w-6xl px-4 mt-12 mb-4">
+          <div className="flex items-center gap-3 mb-8">
+             <div className="h-1 bg-orange-200 flex-1 rounded-full" />
+             <h2 className="text-sm font-black uppercase tracking-[0.2em]" style={{ color: C.brown }}>What's on your mind?</h2>
+             <div className="h-1 bg-orange-200 flex-1 rounded-full" />
           </div>
 
           {/* Emoji category scroll */}
-          <div className="flex gap-5 overflow-x-auto pb-2 px-1" style={{ scrollbarWidth: "none" }}>
+          <div className="flex gap-8 overflow-x-auto pb-4 px-1" style={{ scrollbarWidth: "none" }}>
             {categories.map((c) => (
               <CatChip
                 key={c.name}
@@ -467,18 +450,28 @@ export function Home() {
               />
             ))}
           </div>
+        </section>
 
-          {/* Extra filters row */}
-          <div
-            className="mt-4 rounded-2xl px-4 py-3"
-            style={{
-              background: "rgba(255,252,245,0.92)",
-              backdropFilter: "blur(20px)",
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <div className="flex gap-2 overflow-x-auto flex-1" style={{ scrollbarWidth: "none" }}>
-                <FilterChip
+        {/* 4. ⭐ TOP RATED RESTAURANTS */}
+        <TopRatedRestaurants />
+
+        {/* 5. 📍 POPULAR NEAR YOU */}
+        <PopularNearYou />
+
+        {/* 7. 🆕 RECENTLY ADDED */}
+        <RecentlyAdded />
+
+        {/* 8. 🥘 ALL RESTAURANTS GRID (Filtered) */}
+        <section className="mx-auto max-w-6xl px-4 mt-20 pb-24 border-t border-[rgba(129,52,5,0.06)] pt-16">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+            <div>
+              <h2 className="text-3xl font-black mb-2" style={{ color: C.brown }}>All Restaurants</h2>
+              <p className="text-sm font-medium opacity-60">Hand-picked collection of top local eateries</p>
+            </div>
+
+            {/* Filter Chips row (Existing filters) */}
+            <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0" style={{ scrollbarWidth: "none" }}>
+               <FilterChip
                   label="All Filters"
                   active={selectedFilters.length === 0 && minRating === 0 && dietaryPlan === "All"}
                   onClick={() => {
@@ -486,92 +479,39 @@ export function Home() {
                     setDietaryPlan("All");
                   }}
                 />
-
-                {/* FOOD PREFERENCE GROUP */}
-                <div 
-                  className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-full whitespace-nowrap transition-all"
-                  style={{
-                    background: "rgba(129,52,5,0.04)",
-                    border: "1.5px solid rgba(129,52,5,0.08)",
-                  }}
+                <div
+                  className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-full whitespace-nowrap"
+                  style={{ background: "rgba(129,52,5,0.04)", border: "1.5px solid rgba(129,52,5,0.08)" }}
                 >
                   <div className="flex gap-1.5">
-                    <button
-                      onClick={() => setDietaryPlan(dietaryPlan === "Veg" ? "All" : "Veg")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
-                      style={{
-                        background: dietaryPlan === "Veg" ? "rgba(45,106,79,0.12)" : "transparent",
-                        border: dietaryPlan === "Veg" ? "1px solid rgba(45,106,79,0.4)" : "1px solid transparent",
-                        color: C.brown,
-                      }}
-                    >
-                      <Leaf size={11} />
-                      Veg
-                    </button>
-
-                    <button
-                      onClick={() => setDietaryPlan(dietaryPlan === "Non-Veg" ? "All" : "Non-Veg")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
-                      style={{
-                        background: dietaryPlan === "Non-Veg" ? "rgba(212,81,19,0.12)" : "transparent",
-                        border: dietaryPlan === "Non-Veg" ? "1px solid rgba(212,81,19,0.4)" : "1px solid transparent",
-                        color: C.brown,
-                      }}
-                    >
-                      <Flame size={11} />
-                      Non-Veg
-                    </button>
-
-                    <button
-                      onClick={() => setDietaryPlan(dietaryPlan === "Halal" ? "All" : "Halal")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
-                      style={{
-                        background: dietaryPlan === "Halal" ? "rgba(129,52,5,0.08)" : "transparent",
-                        border: dietaryPlan === "Halal" ? "1px solid rgba(129,52,5,0.2)" : "1px solid transparent",
-                        color: C.brown,
-                      }}
-                    >
-                      <ShieldCheck size={11} />
-                      Halal
-                    </button>
+                    {["Veg", "Non-Veg", "Halal"].map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setDietaryPlan(dietaryPlan === p ? "All" : p as any)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
+                        style={{
+                          background: dietaryPlan === p ? "rgba(212,81,19,0.12)" : "transparent",
+                          border: dietaryPlan === p ? "1px solid rgba(212,81,19,0.4)" : "1px solid transparent",
+                          color: C.brown,
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
                   </div>
                 </div>
-
                 {extraFilters.map((filter) => (
                   <FilterChip
                     key={filter}
                     label={filter}
-                    icon={filter === "Open Now" ? <Clock size={12} /> : null}
                     active={selectedFilters.includes(filter) || expandedFilter === filter}
                     onClick={() => toggleFilter(filter)}
                   />
                 ))}
-              </div>
-              <button
-                className="h-8 w-8 rounded-xl grid place-items-center flex-shrink-0"
-                style={{ background: "rgba(129,52,5,0.08)" }}
-              >
-                <SlidersHorizontal size={14} />
-              </button>
             </div>
           </div>
 
-          {/* RATING SLIDER FILTER SECTION */}
-          <RatingSliderFilter 
-            extraFilter={expandedFilter === "Rating" ? "Rating" : "All"}
-            setExtraFilter={(val) => {
-              if (val === "All") {
-                setExpandedFilter(null);
-              }
-            }}
-            minRating={minRating}
-            setMinRating={setMinRating}
-          />
-        </section>
-
-        {/* Restaurants */}
-        <section className="mx-auto max-w-6xl px-4 mt-9 pb-16">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {list.map((r, i) => (
               <motion.div
                 key={r.id}
@@ -587,12 +527,12 @@ export function Home() {
           {/* Empty State */}
           <AnimatePresence>
             {list.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-center py-20"
-              >
-                <p>No restaurants found.</p>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
+                <div className="w-20 h-20 bg-orange-50 rounded-full grid place-items-center mx-auto mb-6">
+                   <Search size={32} className="text-orange-300" />
+                </div>
+                <h3 className="text-xl font-black mb-2" style={{ color: C.brown }}>No matches found</h3>
+                <p className="text-sm opacity-60">Try adjusting your filters or search query.</p>
               </motion.div>
             )}
           </AnimatePresence>

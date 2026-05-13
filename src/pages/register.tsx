@@ -297,8 +297,7 @@ export function Register() {
         </motion.div>
       </div>
 
-      {/* ── Footer ────────────────────────────────────────────────── */}
-      <Footer />
+
     </div>
   );
 }

@@ -316,7 +316,7 @@ export function Login() {
 
         </motion.div>
       </div>
-      <Footer />
+
     </div>
   );
 }
