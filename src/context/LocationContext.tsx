@@ -37,11 +37,11 @@ export type SavedAddress = LocationOption & {
 };
 
 type LocationCtx = {
-  selectedLocation: LocationOption;
+  selectedLocation: LocationOption | SavedAddress;
   savedAddresses: SavedAddress[];
   recentLocations: LocationOption[];
   suggestions: LocationOption[];
-  setSelectedLocation: (location: LocationOption) => void;
+  setSelectedLocation: (location: LocationOption | SavedAddress) => void;
   saveAddress: (address: SavedAddress) => void;
   deleteAddress: (id: string) => void;
   setDefaultAddress: (id: string) => void;
@@ -144,7 +144,7 @@ const Ctx = createContext<LocationCtx | null>(null);
 
 export function LocationProvider({ children }: { children: ReactNode }) {
   const [selectedLocation, setSelectedLocationState] =
-    useState<LocationOption>(defaultSavedAddresses[0] || defaultLocation);
+    useState<LocationOption | SavedAddress>(defaultSavedAddresses[0] || defaultLocation);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>(
     defaultSavedAddresses
   );
@@ -166,7 +166,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     [recentLocations, savedAddresses, selectedLocation]
   );
 
-  const setSelectedLocation = (location: LocationOption) => {
+  const setSelectedLocation = (location: LocationOption | SavedAddress) => {
     setSelectedLocationState(location);
     setRecentLocations((prev) => {
       const next = [
