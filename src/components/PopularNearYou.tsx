@@ -1,16 +1,13 @@
 import { motion } from "framer-motion";
 import { MapPin, Clock, Star, TrendingUp, ChevronRight } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { restaurants, type Restaurant } from "@/utils/data/mock";
+import { type Restaurant } from "@/utils/data/mock";
+import { useRestaurants } from "@/context/RestaurantContext";
 
-const C = {
-  brown: "#813405",
-  burnt: "#D45113",
-  orange: "#F9A03F",
-  bg: "#F7F0E3",
-};
+import { C } from "@/utils/theme";
 
 export function PopularNearYou() {
+  const { restaurants } = useRestaurants();
   const navigate = useNavigate();
 
   // Filter restaurants for "Popular" logic (rating >= 4.5)

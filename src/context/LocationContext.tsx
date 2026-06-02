@@ -11,10 +11,29 @@ export type LocationOption = {
   label: string;
   address: string;
   note?: string;
+  lat?: number;
+  lng?: number;
 };
 
 export type SavedAddress = LocationOption & {
   kind: "home" | "work" | "custom";
+  firstName?: string;
+  lastName?: string;
+  country?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  streetAddress?: string;
+  phoneNumber?: string;
+  deliveryInstructions?: string;
+  isDefault?: boolean;
+  addressLine1?: string;
+  addressLine2?: string;
+  formattedAddress?: string;
+  location?: {
+    lat: number;
+    lng: number;
+  };
 };
 
 type LocationCtx = {
@@ -24,6 +43,8 @@ type LocationCtx = {
   suggestions: LocationOption[];
   setSelectedLocation: (location: LocationOption) => void;
   saveAddress: (address: SavedAddress) => void;
+  deleteAddress: (id: string) => void;
+  setDefaultAddress: (id: string) => void;
 };
 
 const defaultLocation: LocationOption = {
@@ -35,16 +56,64 @@ const defaultLocation: LocationOption = {
 
 const defaultSavedAddresses: SavedAddress[] = [
   {
-    id: "saved-home",
+    id: "saved-trinco-1",
     kind: "home",
-    label: "Home",
-    address: "No 12, Dockyard Road, Trincomalee",
+    label: "Nimal Perera",
+    firstName: "Nimal",
+    lastName: "Perera",
+    phoneNumber: "077 234 5678",
+    streetAddress: "No. 45, Dockyard Road",
+    city: "Trincomalee",
+    district: "Trincomalee",
+    province: "Eastern",
+    country: "Sri Lanka",
+    address: "No. 45, Dockyard Road, Trincomalee, Trincomalee, Trincomalee, Eastern, Sri Lanka",
+    isDefault: true,
   },
   {
-    id: "saved-work",
+    id: "saved-trinco-2",
     kind: "work",
-    label: "Work",
-    address: "Main Street, Trincomalee",
+    label: "Kasun Fernando",
+    firstName: "Kasun",
+    lastName: "Fernando",
+    phoneNumber: "071 456 7890",
+    streetAddress: "No. 12, Main Street",
+    city: "Trincomalee",
+    district: "Trincomalee",
+    province: "Eastern",
+    country: "Sri Lanka",
+    address: "No. 12, Main Street, Trincomalee, Trincomalee, Trincomalee, Eastern, Sri Lanka",
+    isDefault: false,
+  },
+  {
+    id: "saved-trinco-3",
+    kind: "other",
+    label: "Tharushi Silva",
+    firstName: "Tharushi",
+    lastName: "Silva",
+    phoneNumber: "075 987 6543",
+    streetAddress: "No. 88, Kandy Road",
+    city: "China Bay",
+    district: "Trincomalee",
+    province: "Eastern",
+    country: "Sri Lanka",
+    address: "No. 88, Kandy Road, China Bay, Trincomalee, Eastern, Sri Lanka",
+    isDefault: false,
+  },
+  {
+    id: "saved-trinco-4",
+    kind: "home",
+    label: "Sajith Kumar",
+    firstName: "Sajith",
+    lastName: "Kumar",
+    phoneNumber: "076 321 4587",
+    streetAddress: "No. 27, Nilaveli Road",
+    city: "Nilaveli",
+    district: "Trincomalee",
+    province: "Eastern",
+    country: "Sri Lanka",
+    address: "No. 27, Nilaveli Road, Nilaveli, Trincomalee, Eastern, Sri Lanka",
+    isDefault: false,
   },
 ];
 
@@ -75,7 +144,7 @@ const Ctx = createContext<LocationCtx | null>(null);
 
 export function LocationProvider({ children }: { children: ReactNode }) {
   const [selectedLocation, setSelectedLocationState] =
-    useState<LocationOption>(defaultLocation);
+    useState<LocationOption>(defaultSavedAddresses[0] || defaultLocation);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>(
     defaultSavedAddresses
   );
@@ -110,15 +179,44 @@ export function LocationProvider({ children }: { children: ReactNode }) {
 
   const saveAddress = (address: SavedAddress) => {
     setSavedAddresses((prev) => {
-      const existingIndex = prev.findIndex((item) => item.id === address.id);
+      // If the saved address is set as default, we need to unset default for other addresses
+      const updated = prev.map((item) => {
+        if (address.isDefault && item.id !== address.id) {
+          return { ...item, isDefault: false };
+        }
+        return item;
+      });
+
+      const existingIndex = updated.findIndex((item) => item.id === address.id);
       if (existingIndex >= 0) {
-        return prev.map((item) => (item.id === address.id ? address : item));
+        return updated.map((item) => (item.id === address.id ? address : item));
       }
-      return [...prev, address];
+      return [...updated, address];
     });
-    setSelectedLocationState((prev) =>
-      prev.id === address.id ? address : prev
+
+    if (address.isDefault || selectedLocation.id === address.id) {
+      setSelectedLocationState(address);
+    }
+  };
+
+  const deleteAddress = (id: string) => {
+    setSavedAddresses((prev) => prev.filter((item) => item.id !== id));
+    if (selectedLocation.id === id) {
+      setSelectedLocationState(defaultLocation);
+    }
+  };
+
+  const setDefaultAddress = (id: string) => {
+    setSavedAddresses((prev) =>
+      prev.map((item) => ({
+        ...item,
+        isDefault: item.id === id,
+      }))
     );
+    const target = savedAddresses.find((item) => item.id === id);
+    if (target) {
+      setSelectedLocationState({ ...target, isDefault: true });
+    }
   };
 
   return (
@@ -130,6 +228,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         suggestions,
         setSelectedLocation,
         saveAddress,
+        deleteAddress,
+        setDefaultAddress,
       }}
     >
       {children}

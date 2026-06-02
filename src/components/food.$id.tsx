@@ -18,7 +18,7 @@ import {
 import React, { useState, useRef, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { findFoodItem } from "@/utils/data/mock";
+import { useRestaurants } from "@/context/RestaurantContext";
 import { useCart } from "@/context/CartContext";
 import { isRestaurantOpen } from "@/utils/time";
 
@@ -32,6 +32,7 @@ const CARD_COLORS = [
 ];
 
 export function FoodDetailPage() {
+  const { findFoodItem } = useRestaurants();
   const { id } = useParams({ strict: false });
   const navigate = useNavigate();
   const data = findFoodItem(id || "");
@@ -167,7 +168,7 @@ export function FoodDetailPage() {
     >
       <Navbar />
 
-      <main className="flex-1 px-4 md:px-8 py-6 md:py-10 pb-16">
+      <main className="flex-1 px-3 md:px-8 py-6 md:py-10 pb-16">
         <div className="max-w-7xl mx-auto">
 
           {/* ── HERO CARD ── */}
@@ -175,7 +176,7 @@ export function FoodDetailPage() {
 
             {/* LEFT — Hero Image Panel */}
             <div
-              className="relative flex min-h-[420px] w-full items-center justify-center overflow-hidden lg:min-h-[680px] lg:w-[44%]"
+              className="relative flex min-h-[280px] sm:min-h-[420px] w-full items-center justify-center overflow-hidden lg:min-h-[680px] lg:w-[44%]"
               style={{ background: `linear-gradient(160deg, ${bgColor} 0%, ${bgColor}bb 100%)` }}
             >
               <div
@@ -205,7 +206,7 @@ export function FoodDetailPage() {
               {/* Back button */}
               <button
                 onClick={() => window.history.back()}
-                className="absolute top-6 left-6 z-30 h-11 w-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/35 transition-all border border-white/20 shadow-lg"
+                className="absolute top-4 left-4 sm:top-6 sm:left-6 z-30 h-10 w-10 sm:h-11 sm:w-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/35 transition-all border border-white/20 shadow-lg"
               >
                 <ArrowLeft size={20} />
               </button>
@@ -213,7 +214,7 @@ export function FoodDetailPage() {
               {/* Wishlist button */}
               <button
                 onClick={() => setIsFav(!isFav)}
-                className="absolute top-6 right-6 z-30 h-11 w-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/35 transition-all border border-white/20 shadow-lg"
+                className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 h-10 w-10 sm:h-11 sm:w-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/35 transition-all border border-white/20 shadow-lg"
               >
                 <Heart
                   size={20}
@@ -250,7 +251,7 @@ export function FoodDetailPage() {
                   className="absolute inset-0 rounded-full border-[3px] border-dashed border-white/30 animate-spin"
                   style={{ animationDuration: "20s", margin: "-18px" }}
                 />
-                <div className="h-64 w-64 md:h-80 md:w-80 lg:h-[380px] lg:w-[380px] rounded-full shadow-[0_24px_64px_rgba(0,0,0,0.35)] overflow-hidden border-[10px] border-white/25">
+                <div className="h-48 w-48 sm:h-64 sm:w-64 md:h-80 md:w-80 lg:h-[380px] lg:w-[380px] rounded-full shadow-[0_24px_64px_rgba(0,0,0,0.35)] overflow-hidden border-[10px] border-white/25">
                   <motion.img
                     layoutId={`card-image-${food.id}`}
                     transition={{ type: "spring", stiffness: 220, damping: 24 }}
@@ -291,7 +292,7 @@ export function FoodDetailPage() {
               className="flex flex-1 flex-col gap-7 overflow-y-auto bg-[linear-gradient(180deg,#fffdf9_0%,#fff7ef_100%)] px-7 py-8 md:px-10 lg:px-12"
             >
               {/* Header */}
-              <div className="rounded-[30px] border border-white/70 bg-white/80 p-6 shadow-[0_12px_36px_rgba(129,52,5,0.08)] backdrop-blur-sm">
+              <div className="py-2">
                 {/* Tags row */}
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-[0.18em]">
@@ -317,7 +318,7 @@ export function FoodDetailPage() {
                     transition={{ duration: 0.28 }}
                   >
                     <h1
-                      className="text-4xl md:text-5xl xl:text-[3.6rem] font-black text-slate-900 leading-[1.05] mb-3"
+                      className="text-3xl sm:text-4xl md:text-5xl xl:text-[3.6rem] font-black text-slate-900 leading-[1.05] mb-3"
                       style={{ fontFamily: "var(--font-heading)", letterSpacing: "-0.02em" }}
                     >
                       {food.name}
@@ -333,7 +334,7 @@ export function FoodDetailPage() {
                   <Link
                     to="/restaurant/$id"
                     params={{ id: restaurant.id }}
-                    className="flex items-center gap-4 rounded-[24px] border border-[#F3DFC5] bg-[#FFF8EF] p-4 transition-colors hover:bg-[#FFF3E3]"
+                    className="flex items-center gap-4 py-2 transition-opacity hover:opacity-80"
                   >
                     <div className="h-14 w-14 overflow-hidden rounded-2xl shadow-md ring-2 ring-white">
                       <img src={restaurant.image} alt={restaurant.name} className="h-full w-full object-cover" />
@@ -345,9 +346,9 @@ export function FoodDetailPage() {
                     </div>
                   </Link>
 
-                  <div className="rounded-[24px] border border-[#F3DFC5] bg-white p-4">
+                  <div className="py-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#B98A66]">Base Price</p>
-                    <p className="mt-1 text-3xl font-black leading-none text-slate-900">Rs. {basePrice.toLocaleString()}</p>
+                    <p className="mt-1 text-2xl md:text-3xl font-black leading-none text-slate-900">Rs. {basePrice.toLocaleString()}</p>
                     <p className="mt-2 text-xs text-slate-500">
                       {isDrink ? "Single serve with optional add-ons." : "Choose your preferred portion and extras below."}
                     </p>
@@ -363,13 +364,13 @@ export function FoodDetailPage() {
               </div>
 
               {/* ── SECTION 1: Portions / Quantity ── */}
-              <section className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-[0_10px_30px_rgba(129,52,5,0.06)]">
+              <section className="py-2">
                 <SectionLabel number={1} label={isDrink ? "Quantity" : "Choose Portion"} />
 
                 {isDrink ? (
                   <PortionRow
                     label="Standard"
-                    sublabel="Regular serving"
+                    sublabel="Regular"
                     price={basePrice}
                     qty={regularQty}
                     active={regularQty > 0}
@@ -381,7 +382,7 @@ export function FoodDetailPage() {
                   <div className="flex flex-col gap-3">
                     <PortionRow
                       label="Regular"
-                      sublabel="Standard portion"
+                      sublabel="Standard"
                       price={basePrice}
                       qty={regularQty}
                       active={regularQty > 0}
@@ -391,7 +392,7 @@ export function FoodDetailPage() {
                     />
                     <PortionRow
                       label="Large"
-                      sublabel="Bigger serving"
+                      sublabel="Bigger"
                       price={largePrice}
                       qty={largeQty}
                       active={largeQty > 0}
@@ -404,7 +405,7 @@ export function FoodDetailPage() {
               </section>
 
               {/* ── SECTION 2: Extras ── */}
-              <section className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-[0_10px_30px_rgba(129,52,5,0.06)]">
+              <section className="py-2">
                 <SectionLabel number={2} label="Add Extras" />
                 <div className="flex flex-wrap gap-2.5">
                   {currentExtras.map((extra) => {
@@ -416,7 +417,7 @@ export function FoodDetailPage() {
                         onClick={() => toggleExtra(extra.name)}
                         className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl border-2 transition-all duration-200 text-sm font-bold ${active
                             ? "border-orange-500 bg-orange-50 text-orange-700 shadow-sm shadow-orange-200"
-                            : "border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                            : "border-slate-100 bg-transparent text-slate-600 hover:border-slate-300 hover:bg-white/40"
                           }`}
                       >
                         <span
@@ -438,7 +439,7 @@ export function FoodDetailPage() {
               </section>
 
               {/* ── SECTION 3: Instructions ── */}
-              <section className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-[0_10px_30px_rgba(129,52,5,0.06)]">
+              <section className="py-2">
                 <SectionLabel number={3} label="Special Instructions" />
                 <div className="relative">
                   <textarea
@@ -447,7 +448,7 @@ export function FoodDetailPage() {
                     disabled={!restaurantOpen}
                     placeholder="e.g. Less spicy, no onions, extra gravy…"
                     rows={3}
-                    className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:border-orange-400 focus:bg-white transition-all outline-none text-slate-700 text-sm resize-none leading-relaxed placeholder:text-slate-300"
+                    className="w-full px-5 py-4 rounded-2xl bg-transparent border-2 border-slate-100 focus:border-orange-400 focus:bg-white/40 transition-all outline-none text-slate-700 text-sm resize-none leading-relaxed placeholder:text-slate-300"
                   />
                   {instructions && (
                     <Sparkles
@@ -462,14 +463,14 @@ export function FoodDetailPage() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.35, type: "spring", stiffness: 200, damping: 24 }}
-                className="rounded-[30px] border border-[#F2D9BC] bg-[linear-gradient(135deg,#FFF8EF_0%,#FFFFFF_100%)] p-6 shadow-[0_18px_48px_rgba(129,52,5,0.10)]"
+                className="py-4 mt-4 border-t border-[#F2D9BC]/30"
               >
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center justify-between gap-2 sm:gap-4">
                   <div className="flex min-w-0 flex-1 flex-col text-left">
                     <span className="mb-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
                       Total
                     </span>
-                    <span className="text-2xl font-black leading-none text-slate-900">
+                    <span className="text-lg md:text-2xl font-black leading-none text-slate-900">
                       Rs. {totalPrice.toLocaleString()}
                     </span>
                     {totalItems > 1 && (
@@ -487,7 +488,7 @@ export function FoodDetailPage() {
                   <button
                     disabled={totalItems === 0 || !restaurantOpen}
                     onClick={handleAddToCart}
-                    className={`inline-flex shrink-0 items-center justify-center gap-2.5 rounded-2xl px-7 py-3.5 font-black text-base text-white transition-all ${
+                    className={`inline-flex shrink-0 items-center justify-center gap-1.5 md:gap-2.5 rounded-2xl px-3 sm:px-4 md:px-7 py-3 md:py-3.5 font-black text-[13px] md:text-base text-white transition-all ${
                       totalItems > 0 && restaurantOpen
                         ? "bg-orange-600 hover:bg-orange-700 hover:scale-[1.02] active:scale-[0.97] shadow-lg shadow-orange-600/25"
                         : "bg-slate-200 cursor-not-allowed opacity-60"
@@ -519,7 +520,7 @@ export function FoodDetailPage() {
 
 function SectionLabel({ number, label }: { number: number; label: string }) {
   return (
-    <div className="flex items-center gap-3 mb-4">
+    <div className="flex items-center gap-2 sm:gap-3 mb-4">
       <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[#813405] text-xs font-black text-white shadow-[0_10px_18px_rgba(129,52,5,0.25)]">
         {number}
       </span>
@@ -550,43 +551,43 @@ function PortionRow({
 }) {
   return (
     <div
-      className={`flex items-center justify-between rounded-[24px] border-2 px-5 py-4 transition-all duration-200 ${active
+      className={`flex items-center justify-between rounded-[24px] border-2 px-3.5 py-3 sm:px-5 sm:py-4 transition-all duration-200 ${active
           ? "border-orange-400 bg-[linear-gradient(135deg,rgba(255,243,227,0.95),rgba(255,255,255,0.98))] shadow-[0_12px_24px_rgba(249,160,63,0.12)]"
-          : "border-[#F3E7D8] bg-white/80 hover:border-[#EBC79E]"
+          : "border-transparent bg-transparent hover:border-slate-200"
         }`}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1 mr-2">
         <div
-          className={`flex h-11 w-11 items-center justify-center rounded-xl text-sm font-black transition-colors ${active ? "bg-orange-600 text-white" : "border-2 border-[#EEDBC4] bg-white text-slate-400"
+          className={`flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-xl text-[10px] sm:text-sm font-black transition-colors ${active ? "bg-orange-600 text-white" : "border-2 border-[#EEDBC4] bg-transparent text-slate-400"
             }`}
         >
           {label[0]}
         </div>
-        <div>
-          <p className="font-black text-slate-900 text-sm leading-tight">{label} Portion</p>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">
-            {sublabel} · <span className="font-bold text-slate-600">Rs. {price.toLocaleString()}</span>
+        <div className="min-w-0 flex-1">
+          <p className="font-black text-slate-900 text-xs sm:text-sm leading-tight">{label} Portion</p>
+          <p className="text-[10px] sm:text-xs text-slate-400 font-medium mt-0.5 leading-tight">
+            <span className="font-bold text-slate-700">Rs. {price.toLocaleString()}</span> · {sublabel}
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <button
           disabled={disabled}
           onClick={onDec}
-          className="h-9 w-9 rounded-xl bg-white border border-slate-100 shadow-sm flex items-center justify-center text-slate-400 hover:text-orange-600 hover:border-orange-200 transition-all disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-white border border-slate-100 shadow-sm flex items-center justify-center text-slate-400 hover:text-orange-600 hover:border-orange-200 transition-all disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Minus size={15} strokeWidth={3} />
+          <Minus size={14} strokeWidth={3} />
         </button>
-        <span className="text-base font-black text-slate-900 w-5 text-center tabular-nums">
+        <span className="text-sm sm:text-base font-black text-slate-900 w-4 sm:w-5 text-center tabular-nums">
           {qty}
         </span>
         <button
           disabled={disabled}
           onClick={onInc}
-          className="h-9 w-9 rounded-xl bg-slate-900 flex items-center justify-center text-white hover:bg-orange-600 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-slate-900 flex items-center justify-center text-white hover:bg-orange-600 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Plus size={15} strokeWidth={3} />
+          <Plus size={14} strokeWidth={3} />
         </button>
       </div>
     </div>

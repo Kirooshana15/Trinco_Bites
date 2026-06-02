@@ -4,7 +4,7 @@ import { LocationProvider } from "@/context/LocationContext";
 import { SearchProvider } from "@/context/SearchContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { OrderProvider } from "@/context/OrderContext";
-
+import { RestaurantProvider } from "@/context/RestaurantContext";
 
 function NotFoundComponent() {
   return (
@@ -22,33 +22,50 @@ function NotFoundComponent() {
 
 const rootRoute = createRootRoute({
   component: () => (
-    <CartProvider>
-      <LocationProvider>
-        <SearchProvider>
-          <AuthProvider>
-            <OrderProvider>
-              <Outlet />
-            </OrderProvider>
-          </AuthProvider>
-        </SearchProvider>
-      </LocationProvider>
-    </CartProvider>
+    <AuthProvider>
+      <RestaurantProvider>
+        <CartProvider>
+          <LocationProvider>
+            <SearchProvider>
+              <OrderProvider>
+                <Outlet />
+              </OrderProvider>
+            </SearchProvider>
+          </LocationProvider>
+        </CartProvider>
+      </RestaurantProvider>
+    </AuthProvider>
   ),
   notFoundComponent: NotFoundComponent,
 });
-import { Splash } from "./pages/index";
-import { Home } from "./pages/home";
-import { Cart } from "./pages/cart";
-import { Checkout } from "./pages/checkout";
-import { Login } from "./pages/login";
-import { Onboarding } from "./pages/onboarding";
-import { Rate } from "./pages/rate";
-import { Register } from "./pages/register";
-import { Success } from "./pages/success";
-import { Track } from "./pages/track";
-import { LocationPage } from "./pages/location";
+import { Splash } from "./pages/user/index";
+import { Home } from "./pages/user/home";
+import { Cart } from "./pages/user/cart";
+import { Checkout } from "./pages/user/checkout";
+import { Login } from "./pages/user/login";
+import { Onboarding } from "./pages/user/onboarding";
+import { Rate } from "./pages/user/rate";
+import { Register } from "./pages/user/register";
+import { Success } from "./pages/user/success";
+import { Track } from "./pages/user/track";
+import { LocationPage } from "./pages/user/location";
 import { RestaurantPage } from "./components/restaurant.$id";
 import { FoodDetailPage } from "./components/food.$id";
+import { AdminLogin } from "./pages/business_login";
+import { RestaurantAdminLayout } from "./pages/resturant/layout";
+import { RestaurantDashboard } from "./pages/resturant/dashboard";
+import { OrderManagement } from "./pages/resturant/orders";
+import { MenuManagement } from "./pages/resturant/menu";
+import { CategoryManagement } from "./pages/resturant/categories";
+import { RestaurantProfile } from "./pages/resturant/profile";
+import { CustomerManagement } from "./pages/resturant/customers";
+import { ReviewsRatings } from "./pages/resturant/reviews";
+import { CouponsOffers } from "./pages/resturant/offer";
+import { AnalyticsReports } from "./pages/resturant/analytics";
+import { Notifications } from "./pages/resturant/notifications";
+import { PaymentWallet } from "./pages/resturant/payments";
+import { AdminDashboard } from "./pages/admin/admin-dashboard";
+
 
 // Define Routes
 const indexRoute = createRoute({
@@ -135,6 +152,107 @@ const foodRoute = createRoute({
   component: FoodDetailPage,
 });
 
+const adminLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/business_login",
+  component: AdminLogin,
+});
+
+// Pathless layout route for restaurant admin
+const restaurantAdminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "restaurant-admin-layout",
+  component: RestaurantAdminLayout,
+});
+
+const restaurantDashboardRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/dashboard",
+  component: RestaurantDashboard,
+});
+
+const restaurantOrdersRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/orders",
+  component: OrderManagement,
+});
+
+const restaurantMenuRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/menu",
+  component: MenuManagement,
+});
+
+const restaurantCategoriesRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/categories",
+  component: CategoryManagement,
+});
+
+const restaurantProfileRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/profile",
+  component: RestaurantProfile,
+});
+
+
+const restaurantCustomersRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/customers",
+  component: CustomerManagement,
+});
+
+const restaurantReviewsRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/reviews",
+  component: ReviewsRatings,
+});
+
+const restaurantCouponsRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/offers",
+  component: CouponsOffers,
+});
+
+const restaurantAnalyticsRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/analytics",
+  component: AnalyticsReports,
+});
+
+const restaurantNotificationsRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/notifications",
+  component: Notifications,
+});
+
+const restaurantPaymentsRoute = createRoute({
+  getParentRoute: () => restaurantAdminLayoutRoute,
+  path: "/restaurant/payments",
+  component: PaymentWallet,
+});
+
+// Link all children to the pathless layout route
+const restaurantAdminLayoutWithChildren = restaurantAdminLayoutRoute.addChildren([
+  restaurantDashboardRoute,
+  restaurantOrdersRoute,
+  restaurantMenuRoute,
+  restaurantCategoriesRoute,
+  restaurantProfileRoute,
+  restaurantCustomersRoute,
+  restaurantReviewsRoute,
+  restaurantCouponsRoute,
+  restaurantAnalyticsRoute,
+  restaurantNotificationsRoute,
+  restaurantPaymentsRoute,
+]);
+
+const adminDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/dashboard",
+  component: AdminDashboard,
+});
+
 
 
 // Assemble Route Tree
@@ -153,6 +271,9 @@ export const routeTree = rootRoute.addChildren([
   trackRoute,
   locationRoute,
   foodRoute,
+  adminLoginRoute,
+  restaurantAdminLayoutWithChildren,
+  adminDashboardRoute,
 ]);
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {

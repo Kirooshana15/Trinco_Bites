@@ -12,7 +12,7 @@ import {
 import { useCart } from "@/context/CartContext";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/context/AuthContext";
-import logo from "@/utils/assets/logo.png";
+import logo from "@/assets/logo.png";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 
@@ -63,7 +63,7 @@ export function Navbar() {
           </Link>
 
           {/* CENTER: SEARCH BAR (RESPONSIVE) */}
-          <div className="flex items-center gap-2 bg-white/70 border border-[#EADBC8] rounded-full px-3 py-1.5 sm:px-4 sm:py-2 w-32 sm:w-48 md:w-64 focus-within:bg-white focus-within:border-[#D45113] transition-all shadow-sm mx-auto">
+          <div className="hidden md:flex items-center gap-2 bg-white/70 border border-[#EADBC8] rounded-full px-3 py-1.5 sm:px-4 sm:py-2 w-32 sm:w-48 md:w-64 focus-within:bg-white focus-within:border-[#D45113] transition-all shadow-sm mx-auto">
             <Search className="h-3 w-3 sm:h-4 sm:w-4 text-[#813405]" />
             <input
               type="text"

@@ -1,59 +1,59 @@
-import rest1 from "@/utils/assets/rest-1.jpg";
-import rest2 from "@/utils/assets/rest-2.jpg";
-import rest3 from "@/utils/assets/rest-3.jpg";
-import rest4 from "@/utils/assets/rest-4.jpg";
-import food1 from "@/utils/assets/food-1.jpg";
-import food2 from "@/utils/assets/food-2.jpg";
-import food3 from "@/utils/assets/food-3.jpg";
-import food4 from "@/utils/assets/food-4.jpg";
-import food5 from "@/utils/assets/food-5.jpg";
+import rest1 from "@/assets/rest-1.jpg";
+import rest2 from "@/assets/rest-2.jpg";
+import rest3 from "@/assets/rest-3.jpg";
+import rest4 from "@/assets/rest-4.jpg";
+import food1 from "@/assets/food-1.jpg";
+import food2 from "@/assets/food-2.jpg";
+import food3 from "@/assets/food-3.jpg";
+import food4 from "@/assets/food-4.jpg";
+import food5 from "@/assets/food-5.jpg";
 
 // Category images
-import catAll from "@/utils/assets/srilankan food.jpg";
-import catKoththu from "@/utils/assets/Koththu.jpg";
-import catSrilankan from "@/utils/assets/srilankan food.jpg";
-import catFriedRice from "@/utils/assets/Friedrice.jpg";
-import catNasi from "@/utils/assets/Nasi.jpg";
-import catSeafood from "@/utils/assets/seafood.png";
-import catBriyani from "@/utils/assets/briyani.jpg";
-import catBurger from "@/utils/assets/burgar.jpg";
-import catPizza from "@/utils/assets/pizza.avif";
-import catSoftDrinks from "@/utils/assets/softdrink.jpg";
-import catJuice from "@/utils/assets/juice.jpg";
-import catMojito from "@/utils/assets/mojito.jpg";
-import catMilkshake from "@/utils/assets/milkshake.jpg";
-import catDesserts from "@/utils/assets/dessert.jpg";
-import catChinese from "@/utils/assets/chinesefood.jpg";
+import catAll from "@/assets/srilankan food.jpg";
+import catKoththu from "@/assets/Koththu.jpg";
+import catSrilankan from "@/assets/srilankan food.jpg";
+import catFriedRice from "@/assets/Friedrice.jpg";
+import catNasi from "@/assets/Nasi.jpg";
+import catSeafood from "@/assets/seafood.png";
+import catBriyani from "@/assets/briyani.jpg";
+import catBurger from "@/assets/burgar.jpg";
+import catPizza from "@/assets/pizza.avif";
+import catSoftDrinks from "@/assets/softdrink.jpg";
+import catJuice from "@/assets/juice.jpg";
+import catMojito from "@/assets/mojito.jpg";
+import catMilkshake from "@/assets/milkshake.jpg";
+import catDesserts from "@/assets/dessert.jpg";
+import catChinese from "@/assets/chinesefood.jpg";
 
 // Variety Images - Fried Rice
-import frChicken from "@/utils/assets/chickenfriedrice.jpg";
-import frBeef from "@/utils/assets/beeffriedrice.jpg";
-import frEgg from "@/utils/assets/eggfriedrice.jpg";
-import frPrawn from "@/utils/assets/prawnfriedrice.jpg";
-import frSausage from "@/utils/assets/sausagefriedrice.jpg";
-import frSeafood from "@/utils/assets/seafoodfriedrice.jpg";
-import frVeg from "@/utils/assets/vegfriedrice.jpg";
+import frChicken from "@/assets/chickenfriedrice.jpg";
+import frBeef from "@/assets/beeffriedrice.jpg";
+import frEgg from "@/assets/eggfriedrice.jpg";
+import frPrawn from "@/assets/prawnfriedrice.jpg";
+import frSausage from "@/assets/sausagefriedrice.jpg";
+import frSeafood from "@/assets/seafoodfriedrice.jpg";
+import frVeg from "@/assets/vegfriedrice.jpg";
 
 // Variety Images - Biryani
-import brChicken from "@/utils/assets/chicked- briyani.jpg";
-import brBeef from "@/utils/assets/beef-briyani.jpg";
-import brEgg from "@/utils/assets/egg-briyani.jpg";
-import brPaneer from "@/utils/assets/panner briyani.jpg";
-import brPrawn from "@/utils/assets/prawn briyani.jpg";
+import brChicken from "@/assets/chicked- briyani.jpg";
+import brBeef from "@/assets/beef-briyani.jpg";
+import brEgg from "@/assets/egg-briyani.jpg";
+import brPaneer from "@/assets/panner briyani.jpg";
+import brPrawn from "@/assets/prawn briyani.jpg";
 
 // Variety Images - Mojito
-import mjLime from "@/utils/assets/LimeMojoto.jpg";
-import mjPassion from "@/utils/assets/PassionMojito.jpg";
-import mjPine from "@/utils/assets/PineappleMojito.jpg";
-import mjWater from "@/utils/assets/WatermelonMojito.jpg";
-import mjApple from "@/utils/assets/appleMojito.jpg";
- 
+import mjLime from "@/assets/LimeMojoto.jpg";
+import mjPassion from "@/assets/PassionMojito.jpg";
+import mjPine from "@/assets/PineappleMojito.jpg";
+import mjWater from "@/assets/WatermelonMojito.jpg";
+import mjApple from "@/assets/appleMojito.jpg";
+
 // Variety Images - Koththu
-import ktChicken from "@/utils/assets/Kottu-Chicken.jpg";
-import ktEgg from "@/utils/assets/kottu-Egg.jpg";
-import ktMutton from "@/utils/assets/kottu-Mutton.jpg";
-import ktVeg from "@/utils/assets/kottu-Veg.jpg";
-import ktSeafood from "@/utils/assets/Koththu.jpg";
+import ktChicken from "@/assets/Kottu-Chicken.jpg";
+import ktEgg from "@/assets/kottu-Egg.jpg";
+import ktMutton from "@/assets/kottu-Mutton.jpg";
+import ktVeg from "@/assets/kottu-Veg.jpg";
+import ktSeafood from "@/assets/Koththu.jpg";
 
 
 
@@ -126,7 +126,7 @@ const sharedMenu: FoodItem[] = [
   { id: "sh-mj3", name: "Pineapple Mojito", price: 550, image: mjPine, description: "Sweet and tangy pineapple mojito.", rating: 4.8, category: "Mojito" },
   { id: "sh-mj4", name: "Watermelon Mojito", price: 500, image: mjWater, description: "Cooling watermelon and mint.", rating: 4.6, category: "Mojito" },
   { id: "sh-mj5", name: "Apple Mojito", price: 480, image: mjApple, description: "Crisp apple flavored mojito.", rating: 4.5, category: "Mojito" },
-  
+
   // Koththu Varieties
   { id: "sh-kt1", name: "Chicken Kottu", price: 850, image: ktChicken, description: "Shredded godamba roti stir-fried with chicken & spices.", rating: 4.8, popular: true, category: "Kottu" },
   { id: "sh-kt2", name: "Egg Kottu", price: 750, image: ktEgg, description: "Classic egg kottu with spicy gravy.", rating: 4.7, category: "Kottu" },
@@ -149,8 +149,10 @@ export const restaurants: Restaurant[] = [
     hasOffer: true,
     offerText: "20% OFF",
     openingTime: "08:00 AM",
-    closingTime: "10:00 PM",
+    closingTime: "12:00 PM",
     deliveryRadius: 8,
+    deliveryAvailable: true,
+    deliveryFee: 0,
     categories: ["Kottu", "Srilankan Foods", "Seafood", ...commonCategories],
     menu: [
       { id: "f2", name: "Fish Curry & Rice", price: 950, image: food3, description: "Fresh catch in a fragrant Trinco-style curry.", rating: 4.7, category: "Srilankan Foods" },

@@ -11,19 +11,14 @@ import {
   ArrowRight, 
   Send 
 } from "lucide-react";
-import logo from "@/utils/assets/logo.png";
+import logo from "@/assets/logo.png";
 
 type FooterProps = Pick<
   HTMLMotionProps<"footer">,
   "variants" | "initial" | "animate" | "transition"
 >;
 
-const C = {
-  brown: "#813405",
-  burnt: "#D45113",
-  orange: "#F9A03F",
-  cream: "#F8DDA4",
-};
+import { C } from "@/utils/theme";
 
 export function Footer({
   variants,

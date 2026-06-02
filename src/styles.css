@@ -79,7 +79,7 @@
 
   --gradient-warm: linear-gradient(135deg, var(--brand-orange), var(--brand-burnt));
   --gradient-hero: linear-gradient(160deg, var(--brand-cream) 0%, var(--brand-orange) 60%, var(--brand-burnt) 100%);
-  --gradient-soft: linear-gradient(180deg, oklch(0.99 0.015 85), oklch(0.96 0.04 80));
+  --gradient-soft: linear-gradient(180deg, #FAF7F2 0%, #F5F1E6 100%);
   --shadow-card: 0 10px 30px -12px oklch(0.36 0.11 45 / 0.18);
   --shadow-glow: 0 20px 60px -20px oklch(0.58 0.17 45 / 0.45);
 }
@@ -131,4 +131,11 @@
   .shadow-glow { box-shadow: var(--shadow-glow); }
   .font-serif { font-family: var(--font-body); }
   .font-sans { font-family: var(--font-body); }
+  .custom-scrollbar {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
+  }
 }

@@ -12,13 +12,7 @@ interface OffersBadgeProps {
   className?: string;
 }
 
-const C = {
-  brown: "#813405",
-  burnt: "#D45113",
-  orange: "#F9A03F",
-  cream: "#F8DDA4",
-  olive: "#606C38",
-};
+import { C } from "@/utils/theme";
 
 export const OffersBadge: React.FC<OffersBadgeProps> = ({
   variant,

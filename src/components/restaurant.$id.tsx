@@ -14,37 +14,23 @@ import {
   Plus,
   Minus,
   X,
-  ChevronLeft
+  ChevronLeft,
+  Gift
 } from "lucide-react";
 import React, { useState, useMemo, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { FoodCard } from "@/components/FoodCard";
 import { OffersBadge } from "@/components/OffersBadge";
-import { findRestaurant, categories, type FoodItem } from "@/utils/data/mock";
+import { categories, type FoodItem } from "@/utils/data/mock";
+import { useRestaurants, type Offer } from "@/context/RestaurantContext";
 import { useCart } from "@/context/CartContext";
 
-/* ── Palette ─────────────────────────────────────────────────────── */
-const C = {
-  brown: "#813405",
-  burnt: "#D45113",
-  orange: "#F9A03F",
-  cream: "#F8DDA4",
-  olive: "#606C38",
-  bg: "#F7F0E3",
-  vibrant: {
-    yellow: "#F9C74F",
-    teal: "#4D908E",
-    pink: "#F94144",
-    orange: "#F8961E",
-    blue: "#277DA1",
-    green: "#90BE6D"
-  }
-} as const;
+import { C } from "@/utils/theme";
 
 const VIBRANT_COLORS = Object.values(C.vibrant);
 
-/* ── Status Helper ───────────────────────────────────────────────── */
+/* ── Status Helpers ───────────────────────────────────────────────── */
 function isCurrentlyOpen(open: string, close: string) {
   const now = new Date();
   const parseTime = (t: string) => {
@@ -59,6 +45,58 @@ function isCurrentlyOpen(open: string, close: string) {
   const openTime = parseTime(open);
   const closeTime = parseTime(close);
   return now >= openTime && now <= closeTime;
+}
+
+function getAutomaticOfferStatus(offer: Offer) {
+  if (offer.status === "Draft") return "Paused";
+
+  const now = new Date();
+  
+  // Format dates: YYYY-MM-DD
+  const todayStr = now.getFullYear() + "-" + 
+    String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+    String(now.getDate()).padStart(2, "0");
+    
+  const start = offer.startDate;
+  const end = offer.endDate;
+
+  if (todayStr > end) return "Expired";
+  if (todayStr < start) return "Scheduled";
+
+  // Check active day of week (e.g. "Mon", "Tue", etc.)
+  const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const currentDay = daysMap[now.getDay()];
+  if (!offer.activeDays.includes(currentDay)) {
+    return "Scheduled"; // active overall, but not today
+  }
+
+  // Check active times if specified
+  if (offer.startTime && offer.endTime) {
+    const parseTimeToMinutes = (t: string) => {
+      const [time, period] = t.split(" ");
+      let [hours, minutes] = time.split(":").map(Number);
+      if (period === "PM" && hours !== 12) hours += 12;
+      if (period === "AM" && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    };
+
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const startMinutes = parseTimeToMinutes(offer.startTime);
+    const endMinutes = parseTimeToMinutes(offer.endTime);
+
+    if (startMinutes < endMinutes) {
+      if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
+        return "Scheduled"; // active today, but not right now
+      }
+    } else {
+      // Handles overnight ranges (e.g. 10 PM to 1 AM)
+      if (currentMinutes < startMinutes && currentMinutes > endMinutes) {
+        return "Scheduled";
+      }
+    }
+  }
+
+  return "Active";
 }
 
 /* ── Category Chip ──────────────────────────────────────────────── */
@@ -232,10 +270,22 @@ const CAT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function RestaurantPage() {
+  const { findRestaurant, offers } = useRestaurants();
   const { id } = useParams({ strict: false });
   const r = findRestaurant(id || "");
   const { count, add, decrement, items: cartItems } = useCart();
   const [activeCategory, setActiveCategory] = useState("All");
+
+  const activeAndLiveOffers = useMemo(() => {
+    if (!r) return [];
+    return offers
+      .filter(o => o.restaurantId === r.id)
+      .map(o => ({
+        ...o,
+        computedStatus: getAutomaticOfferStatus(o)
+      }))
+      .filter(o => o.computedStatus !== "Expired" && o.status !== "Draft");
+  }, [offers, r]);
 
 
   if (!r) return null;
@@ -342,6 +392,90 @@ export function RestaurantPage() {
             </div>
           </motion.div>
         </section>
+
+        {/* ── Available Offers Section ────────────────────────────── */}
+        {activeAndLiveOffers.length > 0 && (
+          <section className="mx-auto max-w-6xl px-4 mt-10">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex flex-col text-left">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-[#D45113]/10 text-[#D45113]">
+                    <Gift size={20} />
+                  </div>
+                  <h3 className="text-xl font-black text-[#813405] font-serif leading-tight">Available Offers</h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 pl-9">Exclusive discounts and combos for you today</p>
+              </div>
+            </div>
+
+            <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
+              {activeAndLiveOffers.map((offer) => {
+                const isActiveRightNow = offer.computedStatus === "Active";
+                
+                return (
+                  <motion.div
+                    key={offer.id}
+                    whileHover={{ y: -4 }}
+                    className="flex-shrink-0 w-80 md:w-96 rounded-2xl bg-white border border-[#F8DDA4]/30 shadow-md p-4 snap-start flex flex-col justify-between"
+                  >
+                    <div className="flex gap-3">
+                      {/* Banner / Image block */}
+                      {offer.bannerImage ? (
+                        <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 relative bg-slate-50 border border-slate-100">
+                          <img src={offer.bannerImage} alt={offer.title} className="w-full h-full object-cover" />
+                          <div className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-white ${
+                            isActiveRightNow ? "bg-green-650 animate-pulse" : "bg-amber-600"
+                          }`}>
+                            {isActiveRightNow ? "Live Now" : "Upcoming"}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-24 h-24 rounded-xl bg-orange-50/50 border border-orange-100/50 flex items-center justify-center shrink-0 text-3xl">
+                          {offer.emoji}
+                        </div>
+                      )}
+
+                      <div className="flex-1 flex flex-col justify-between text-left">
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-[#D45113] bg-[#D45113]/10 px-2 py-0.5 rounded-full">
+                              {offer.type === "Discount" ? "Automatic Discount" : offer.type === "Combo" ? "Combo Deal" : "Special Promo"}
+                            </span>
+                            {offer.timeLabel && (
+                              <span className="text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
+                                {offer.timeLabel}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="font-extrabold text-sm text-[#813405] mt-1.5 line-clamp-1">{offer.title}</h4>
+                          <p className="text-[10px] text-slate-500 font-medium mt-1 leading-normal line-clamp-2">{offer.description}</p>
+                        </div>
+
+                        <div className="text-[8.5px] font-bold text-slate-450 uppercase tracking-wide flex items-center gap-1 mt-2">
+                          <Clock size={9} />
+                          <span>{offer.activeDays.join(", ")} {offer.startTime ? `• ${offer.startTime} - ${offer.endTime}` : ""}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-[#D45113] bg-orange-50 border border-orange-100/50 px-2.5 py-0.5 rounded-lg shadow-sm">
+                        {offer.discountBadge}
+                      </span>
+                      <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
+                        isActiveRightNow 
+                          ? "bg-green-100 text-green-700 border border-green-200/50 animate-pulse" 
+                          : "bg-amber-100 text-amber-700 border border-amber-200/50"
+                      }`}>
+                        {isActiveRightNow ? "✓ Auto Applied" : "Starts Soon"}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* ── Menu Display Section (Responsive Grid) ──────────────────── */}
         <section className="mx-auto max-w-7xl px-4 mt-8 pb-24">

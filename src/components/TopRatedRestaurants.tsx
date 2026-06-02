@@ -1,17 +1,11 @@
 import { motion } from "framer-motion";
 import { Star, TrendingUp, Award, ChevronRight } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { restaurants, type Restaurant } from "@/utils/data/mock";
+import { type Restaurant } from "@/utils/data/mock";
+import { useRestaurants } from "@/context/RestaurantContext";
 import { useRef } from "react";
 
-/* ── Palette ─────────────────────────────────────────────────────── */
-const C = {
-  brown:  "#813405",
-  burnt:  "#D45113",
-  orange: "#F9A03F",
-  cream:  "#F8DDA4",
-  bg:     "#F7F0E3",
-} as const;
+import { C } from "@/utils/theme";
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 function getRatingColor(rating: number) {
@@ -40,8 +34,7 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
       viewport={{ once: true, margin: "-60px" }}
       transition={{ delay: index * 0.08, duration: 0.5, ease: "easeOut" }}
       whileHover={{ y: -8, transition: { duration: 0.25 } }}
-      className="flex-shrink-0 cursor-pointer"
-      style={{ width: 280 }}
+      className="flex-shrink-0 cursor-pointer w-[240px] sm:w-[280px]"
       onClick={() => navigate({ to: "/restaurant/$id", params: { id: r.id } })}
     >
       <div
@@ -121,6 +114,7 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
 
 /* ── Top Rated Section ───────────────────────────────────────────── */
 export function TopRatedRestaurants() {
+  const { restaurants } = useRestaurants();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Top 4 by rating
@@ -224,7 +218,7 @@ export function TopRatedRestaurants() {
 
       {/* ── Glassmorphism container ── */}
       <div
-        className="relative rounded-[28px] p-5"
+        className="relative rounded-[28px] p-3 sm:p-5"
         style={{
           background:
             "linear-gradient(135deg, rgba(255,248,236,0.92) 0%, rgba(255,240,210,0.80) 100%)",
@@ -235,15 +229,19 @@ export function TopRatedRestaurants() {
         }}
       >
         {/* Info bar */}
-        <div className="flex items-center gap-2 mb-4">
-          <TrendingUp size={14} style={{ color: C.orange }} />
-          <span className="text-[11px] font-bold" style={{ color: C.burnt }}>
-            Based on customer ratings &amp; reviews
-          </span>
-          <div className="h-1.5 w-1.5 rounded-full" style={{ background: C.orange }} />
-          <span className="text-[11px]" style={{ color: "rgba(129,52,5,0.50)" }}>
-            Updated daily
-          </span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4">
+          <div className="flex items-center gap-1.5">
+            <TrendingUp size={13} style={{ color: C.orange }} />
+            <span className="text-[10px] sm:text-[11px] font-black" style={{ color: C.burnt }}>
+              Based on customer reviews
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="hidden sm:block h-1 w-1 rounded-full" style={{ background: C.orange }} />
+            <span className="text-[10px] sm:text-[11px]" style={{ color: "rgba(129,52,5,0.50)" }}>
+              Updated daily
+            </span>
+          </div>
         </div>
 
         {/* ── Horizontal scroll track ── */}
