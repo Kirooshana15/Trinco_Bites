@@ -16,7 +16,7 @@ export type LocationOption = {
 };
 
 export type SavedAddress = LocationOption & {
-  kind: "home" | "work" | "custom";
+  kind: "home" | "work" | "custom" | "other";
   firstName?: string;
   lastName?: string;
   country?: string;

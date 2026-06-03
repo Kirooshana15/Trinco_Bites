@@ -101,8 +101,8 @@ export function Checkout() {
   // Synchronize contact info with selected address
   useEffect(() => {
     if (selectedLocation) {
-      const addressLabel = selectedLocation.firstName
-        ? `${selectedLocation.firstName} ${selectedLocation.lastName || ""}`.trim()
+      const addressLabel = (selectedLocation as SavedAddress).firstName
+        ? `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}`.trim()
         : selectedLocation.label;
 
       setContact((prev) => ({
@@ -222,7 +222,7 @@ export function Checkout() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="font-extrabold text-[#813405] text-sm">
-                      {selectedLocation.firstName ? `${selectedLocation.firstName} ${selectedLocation.lastName || ""}` : selectedLocation.label}
+                      {(selectedLocation as SavedAddress).firstName ? `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}` : selectedLocation.label}
                     </h4>
                     {(selectedLocation as SavedAddress).phoneNumber && (
                       <span className="text-[#813405]/50 text-xs font-bold">
@@ -231,10 +231,10 @@ export function Checkout() {
                     )}
                   </div>
                   <p className="text-xs text-[#D45113] font-black mt-1 leading-relaxed truncate">
-                    {selectedLocation.streetAddress || selectedLocation.address}
+                    {(selectedLocation as SavedAddress).streetAddress || selectedLocation.address}
                   </p>
                   <p className="text-[11px] text-[#813405]/60 font-bold mt-0.5 leading-normal">
-                    {selectedLocation.city ? `${selectedLocation.city}, ${selectedLocation.district || ""}, ${selectedLocation.province || ""}, Sri Lanka` : "Tap to select address"}
+                    {(selectedLocation as SavedAddress).city ? `${(selectedLocation as SavedAddress).city}, ${(selectedLocation as SavedAddress).district || ""}, ${(selectedLocation as SavedAddress).province || ""}, Sri Lanka` : "Tap to select address"}
                   </p>
                 </div>
               </div>
