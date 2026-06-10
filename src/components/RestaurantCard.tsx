@@ -52,8 +52,13 @@ export function RestaurantCard({ r, index = 0 }: { r: Restaurant; index?: number
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-1">{r.location}</p>
-            <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />{r.deliveryTime}
+            <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t border-border/10 pt-2.5">
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />{r.deliveryTime}
+              </div>
+              <div className="flex items-center gap-1 text-[11px] font-bold text-brand-brown">
+                <span>🕒 {r.openingTime} - {r.closingTime}</span>
+              </div>
             </div>
           </div>
         </div>

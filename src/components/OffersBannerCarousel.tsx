@@ -71,7 +71,7 @@ const slideVariants = {
 
 
 /* ── OffersBannerCarousel ────────────────────────────────────────── */
-export function OffersBannerCarousel() {
+export function OffersBannerCarousel({ onCtaClick }: { onCtaClick?: (bannerId: string) => void }) {
   const navigate = useNavigate();
   const [current, setCurrent] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -91,7 +91,9 @@ export function OffersBannerCarousel() {
   };
 
   const handleCtaClick = (banner: Banner) => {
-    if (banner.restaurant_id && banner.restaurant_id._id) {
+    if (onCtaClick) {
+      onCtaClick(banner.id);
+    } else if (banner.restaurant_id && banner.restaurant_id._id) {
       navigate({ to: "/restaurant/$id", params: { id: banner.restaurant_id._id } });
     } else {
       navigate({ to: "/home" });

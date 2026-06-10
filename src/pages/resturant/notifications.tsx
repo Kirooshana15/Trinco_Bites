@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Settings,
@@ -17,6 +17,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { useOrders } from "@/context/OrderContext";
+import { useRestaurants } from "@/context/RestaurantContext";
+import { buildRestaurantAlerts } from "@/utils/restaurantNotifications";
 
 // ==========================================
 // 1. TYPE DEFINITIONS
@@ -27,6 +31,7 @@ interface NotificationItem {
   title: string;
   description: string;
   time: string;
+  createdAt?: string;
   read: boolean;
 }
 
@@ -112,6 +117,7 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
 const INITIAL_PREFERENCES: NotificationPreference[] = [
   { key: "newOrder", label: "New Order Received", enabled: true },
   { key: "orderCancelled", label: "Order Cancelled", enabled: true },
+  { key: "dailyOrderUpdate", label: "Daily Order Update", enabled: true },
   { key: "newReview", label: "New Review Received", enabled: true },
   {
     key: "complaintSubmitted",
@@ -184,6 +190,11 @@ const TYPE_ICONS: Record<NotificationItem["type"], React.ReactNode> = {
 };
 
 export function Notifications() {
+  const { user } = useAuth();
+  const { orders } = useOrders();
+  const { offers, restaurants } = useRestaurants();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
+
   // ==========================================
   // 4. STATES
   // ==========================================
@@ -199,6 +210,44 @@ export function Notifications() {
   const [tempPreferences, setTempPreferences] =
     useState<NotificationPreference[]>(INITIAL_PREFERENCES);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
+  const [dismissedAutoIds, setDismissedAutoIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("trinco_dismissed_auto_notifications");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const generatedNotifications = useMemo(
+    () =>
+      buildRestaurantAlerts({
+        orders,
+        offers,
+        restaurantId: activeRestaurant?.id,
+      }),
+    [orders, offers, activeRestaurant?.id]
+  );
+
+  useEffect(() => {
+    setNotifications((prev) => {
+      const prevById = new Map(prev.map((item) => [item.id, item]));
+      const manualNotifications = prev.filter((item) => !item.id.startsWith("auto-"));
+      const liveNotifications = generatedNotifications
+        .filter((item) => !dismissedAutoIds.includes(item.id))
+        .map((item) => ({
+          ...item,
+          read: prevById.get(item.id)?.read ?? item.read,
+        }));
+
+      return [...liveNotifications, ...manualNotifications].sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+    });
+  }, [generatedNotifications, dismissedAutoIds]);
 
   // ==========================================
   // 5. DYNAMIC CALCULATIONS & FILTERING
@@ -241,6 +290,13 @@ export function Notifications() {
 
   const handleDeleteNotif = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (id.startsWith("auto-")) {
+      setDismissedAutoIds((prev) => {
+        const updated = Array.from(new Set([...prev, id]));
+        localStorage.setItem("trinco_dismissed_auto_notifications", JSON.stringify(updated));
+        return updated;
+      });
+    }
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     toast.success("Notification cleared");
   };
@@ -256,8 +312,25 @@ export function Notifications() {
       toast.error("No read notifications to clear");
       return;
     }
+    setIsConfirmClearOpen(true);
+  };
+
+  const confirmClearRead = () => {
+    const readAutoIds = notifications
+      .filter((notification) => notification.read && notification.id.startsWith("auto-"))
+      .map((notification) => notification.id);
+
+    if (readAutoIds.length > 0) {
+      setDismissedAutoIds((prev) => {
+        const updated = Array.from(new Set([...prev, ...readAutoIds]));
+        localStorage.setItem("trinco_dismissed_auto_notifications", JSON.stringify(updated));
+        return updated;
+      });
+    }
+
     setNotifications((prev) => prev.filter((n) => !n.read));
     toast.success("Cleared all read notifications");
+    setIsConfirmClearOpen(false);
   };
 
   const handleOpenSettings = () => {
@@ -685,6 +758,69 @@ export function Notifications() {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* Clear Read Confirmation Modal */}
+      <AnimatePresence>
+        {isConfirmClearOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsConfirmClearOpen(false)}
+              className="fixed inset-0 bg-black z-45"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="clear-read-title"
+              className="relative w-[calc(100%-2rem)] max-w-md h-fit bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-955/20 shadow-2xl z-50 rounded-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-rose-100/70 dark:border-rose-955/40 bg-rose-50/70 dark:bg-rose-950/10 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-955/40 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <h2 id="clear-read-title" className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                    Clear Read Notifications
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    This action deletes all read alerts permanently.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6">
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300 text-left">
+                  Are you sure you want to clear all read notifications? You will not be able to retrieve them once cleared.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmClearOpen(false)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider rounded-xl transition duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmClearRead}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} /> Clear All
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

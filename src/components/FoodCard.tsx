@@ -146,7 +146,7 @@ export function FoodCard({
   };
 
   return (
-    <Link to="/food/$id" params={{ id: item.id }}>
+    <Link to="/food/$id" params={{ id: item.id }} search={{ restaurantId }}>
       <div
         ref={cardRef}
         style={{ perspective: "1000px", transformStyle: "preserve-3d" }}

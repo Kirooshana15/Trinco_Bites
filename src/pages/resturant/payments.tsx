@@ -395,13 +395,293 @@ export function PaymentWallet() {
     }, 850);
   };
 
-  // Triggers PDF/CSV reports simulation
-  const handleSimulateReportExport = (key: string, name: string) => {
-    setExportLoadingKey(key);
+  // ─── File Download Helpers ──────────────────────────────────────────────────
+
+  /** Triggers a browser CSV file download from string content */
+  const downloadCSV = (filename: string, csvContent: string) => {
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.setAttribute("download", filename);
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Builds a complete branded HTML document string and triggers a direct
+   * file download (no popup required). Users can open the .html file in
+   * their browser and use Ctrl+P → Save as PDF.
+   */
+  const downloadHTML = (filename: string, title: string, htmlBody: string) => {
+    const generatedDate = new Date().toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+    const fullDocument = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e1e1e; font-size: 12px; }
+    .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #D45113; padding-bottom: 16px; margin-bottom: 24px; }
+    .brand { font-size: 22px; font-weight: 900; color: #813405; letter-spacing: -0.5px; }
+    .brand span { color: #D45113; }
+    .report-meta { text-align: right; font-size: 10px; color: #555; }
+    .report-meta strong { display: block; font-size: 14px; color: #813405; margin-bottom: 4px; }
+    .section-title { font-size: 11px; font-weight: 800; color: #813405; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+    thead tr { background: #813405; color: white; }
+    thead th { padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    tbody tr { border-bottom: 1px solid #e8e8e8; }
+    tbody tr:nth-child(even) { background: #FFFCF5; }
+    tbody td { padding: 7px 10px; font-size: 11px; }
+    .amount-credit { color: #16a34a; font-weight: 700; }
+    .amount-debit { color: #dc2626; font-weight: 700; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; }
+    .badge-settled { background: #dcfce7; color: #15803d; }
+    .badge-processing { background: #fef9c3; color: #b45309; }
+    .badge-completed { background: #dcfce7; color: #15803d; }
+    .badge-failed { background: #fee2e2; color: #b91c1c; }
+    .summary-box { background: #FFFCF5; border: 2px solid #F8DDA4; border-radius: 12px; padding: 16px 20px; margin-bottom: 28px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid #f0e0c0; }
+    .summary-row:last-child { border-bottom: none; font-size: 13px; font-weight: 900; color: #813405; padding-top: 8px; }
+    .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 12px; font-size: 9px; color: #888; text-align: center; }
+    .print-hint { background: #fff8ee; border: 1px solid #F8DDA4; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 10px; color: #813405; }
+    @media print { .print-hint { display: none; } body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="print-hint">&#128438; To save as PDF: press <strong>Ctrl+P</strong> (or Cmd+P on Mac) &rarr; choose <strong>Save as PDF</strong> as the destination.</div>
+  <div class="report-header">
+    <div class="brand">Trinco<span>Bites</span></div>
+    <div class="report-meta">
+      <strong>${title}</strong>
+      Generated: ${generatedDate}<br/>
+      Trinco Bites Restaurant Group &middot; Trincomalee, Sri Lanka
+    </div>
+  </div>
+  ${htmlBody}
+  <div class="footer">This is a system-generated document from Trinco Bites POS &amp; Payments Platform. For disputes, contact support@trincobites.lk</div>
+</body>
+</html>`;
+    const blob = new Blob([fullDocument], { type: "text/html;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.setAttribute("download", filename);
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  /** Opens a new window with printable HTML content and auto-triggers print */
+  const openPrintWindow = (title: string, htmlBody: string) => {
+    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printWindow) {
+      toast.error("Pop-up was blocked. Please allow pop-ups for this site.");
+      return;
+    }
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>${title}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e1e1e; font-size: 12px; }
+          .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #D45113; padding-bottom: 16px; margin-bottom: 24px; }
+          .brand { font-size: 22px; font-weight: 900; color: #813405; letter-spacing: -0.5px; }
+          .brand span { color: #D45113; }
+          .report-meta { text-align: right; font-size: 10px; color: #555; }
+          .report-meta strong { display: block; font-size: 14px; color: #813405; margin-bottom: 4px; }
+          .section-title { font-size: 11px; font-weight: 800; color: #813405; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+          thead tr { background: #813405; color: white; }
+          thead th { padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+          tbody tr { border-bottom: 1px solid #e8e8e8; }
+          tbody tr:nth-child(even) { background: #FFFCF5; }
+          tbody td { padding: 7px 10px; font-size: 11px; }
+          .amount-credit { color: #16a34a; font-weight: 700; }
+          .amount-debit { color: #dc2626; font-weight: 700; }
+          .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; }
+          .badge-settled { background: #dcfce7; color: #15803d; }
+          .badge-processing { background: #fef9c3; color: #b45309; }
+          .badge-completed { background: #dcfce7; color: #15803d; }
+          .badge-failed { background: #fee2e2; color: #b91c1c; }
+          .summary-box { background: #FFFCF5; border: 2px solid #F8DDA4; border-radius: 12px; padding: 16px 20px; margin-bottom: 28px; }
+          .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; border-bottom: 1px solid #f0e0c0; }
+          .summary-row:last-child { border-bottom: none; font-size: 13px; font-weight: 900; color: #813405; padding-top: 8px; }
+          .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 12px; font-size: 9px; color: #888; text-align: center; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="report-header">
+          <div class="brand">Trinco<span>Bites</span></div>
+          <div class="report-meta">
+            <strong>${title}</strong>
+            Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}<br/>
+            Trinco Bites Restaurant Group · Trincomalee, Sri Lanka
+          </div>
+        </div>
+        ${htmlBody}
+        <div class="footer">This is a system-generated report from Trinco Bites POS &amp; Payments Platform. For disputes, contact support@trincobites.lk</div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 400);
+  };
+
+  // ─── Export Handlers ─────────────────────────────────────────────────────────
+
+  /** Exports all transaction history to a CSV file */
+  const handleExportTransactionsCSV = () => {
+    setExportLoadingKey("txns");
+    const headers = ["Transaction ID", "Order Number", "Type", "Date", "Status", "Amount (LKR)"];
+    const rows = transactions.map((t) => [
+      t.id,
+      t.orderNumber,
+      t.type,
+      t.date,
+      t.status,
+      t.amount.toFixed(2),
+    ]);
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const filename = `trinco-bites-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
     setTimeout(() => {
+      downloadCSV(filename, csvContent);
       setExportLoadingKey("");
-      toast.success(`${name} exported and saved successfully!`);
-    }, 1200);
+      toast.success("Transaction log downloaded as CSV!");
+    }, 600);
+  };
+
+  /** Exports payout history as a printable PDF via browser */
+  const handleExportPayoutHistoryPDF = () => {
+    setExportLoadingKey("payouts");
+    const rows = payoutHistory
+      .map(
+        (p) =>
+          `<tr>
+            <td style="font-family:monospace;">${p.id}</td>
+            <td class="amount-credit">LKR ${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+            <td>${p.date}</td>
+            <td><span class="badge badge-${p.status.toLowerCase()}">${p.status}</span></td>
+          </tr>`,
+      )
+      .join("");
+    const totalPaid = payoutHistory.reduce((acc, p) => acc + p.amount, 0);
+    const htmlBody = `
+      <p class="section-title">Settled Direct Deposits — Full Payout History</p>
+      <table>
+        <thead><tr><th>Payout ID</th><th>Amount Credited</th><th>Settle Date</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="summary-box">
+        <div class="summary-row"><span>Total Records</span><span>${payoutHistory.length} payouts</span></div>
+        <div class="summary-row"><span>Total Credited</span><span>LKR ${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+      </div>
+    `;
+    setTimeout(() => {
+      openPrintWindow("Payout History Report — Trinco Bites", htmlBody);
+      setExportLoadingKey("");
+      toast.success("Payout History Report opened for printing/saving.");
+    }, 600);
+  };
+
+  /** Exports refund requests list as a CSV file */
+  const handleExportRefundsCSV = () => {
+    setExportLoadingKey("refunds");
+    const headers = ["Refund ID", "Customer Name", "Order Number", "Amount (LKR)", "Reason", "Status"];
+    const rows = refundRequests.map((r) => [
+      r.id,
+      r.customerName,
+      r.orderNumber,
+      r.amount.toFixed(2),
+      r.reason,
+      r.status,
+    ]);
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const filename = `trinco-bites-refunds-${new Date().toISOString().slice(0, 10)}.csv`;
+    setTimeout(() => {
+      downloadCSV(filename, csvContent);
+      setExportLoadingKey("");
+      toast.success("Refund report downloaded as CSV!");
+    }, 600);
+  };
+
+  /** Downloads a monthly financial statement PDF */
+  const handleDownloadMonthlyStatement = () => {
+    const monthLabel = new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const htmlBody = `
+      <p class="section-title">Monthly Financial Statement — ${monthLabel}</p>
+      <div class="summary-box">
+        <div class="summary-row"><span>Available Balance</span><span>LKR ${availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+        <div class="summary-row"><span>Pending Settlement</span><span>LKR ${pendingSettlement.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+        <div class="summary-row"><span>Today's Earnings</span><span>LKR ${todayEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+        <div class="summary-row"><span>Month-to-Date Earnings</span><span>LKR ${monthEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+      </div>
+      <p class="section-title">Earnings Breakdown</p>
+      <table>
+        <thead><tr><th>Category</th><th>Amount (LKR)</th></tr></thead>
+        <tbody>
+          <tr><td>Delivery Orders Revenue</td><td class="amount-credit">+LKR ${breakdown.deliveryRevenue.toLocaleString()}</td></tr>
+          <tr><td>Pickup Orders Revenue</td><td class="amount-credit">+LKR ${breakdown.pickupRevenue.toLocaleString()}</td></tr>
+          <tr><td>Tips Received</td><td class="amount-credit">+LKR ${breakdown.tipsReceived.toLocaleString()}</td></tr>
+          <tr><td>Platform Promotions</td><td class="amount-credit">+LKR ${breakdown.promotionsContribution.toLocaleString()}</td></tr>
+          <tr><td>Platform Commission (10%)</td><td class="amount-debit">-LKR ${breakdown.platformCommission.toLocaleString()}</td></tr>
+          <tr><td>Delivery Service Fee</td><td class="amount-debit">-LKR ${breakdown.deliveryFee.toLocaleString()}</td></tr>
+          <tr><td>Taxes &amp; Levies</td><td class="amount-debit">-LKR ${breakdown.taxes.toLocaleString()}</td></tr>
+          <tr style="font-weight:900;background:#fff8ee;"><td>Net Earnings</td><td style="color:#813405;">LKR ${netEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+        </tbody>
+      </table>
+      <p class="section-title">Bank Account Details</p>
+      <div class="summary-box">
+        <div class="summary-row"><span>Account Holder</span><span>${bankDetails.holderName}</span></div>
+        <div class="summary-row"><span>Bank</span><span>${bankDetails.bankName}</span></div>
+        <div class="summary-row"><span>Account Number</span><span>${bankDetails.accountNumber}</span></div>
+        <div class="summary-row"><span>Branch</span><span>${bankDetails.branch}</span></div>
+        <div class="summary-row"><span>Verification Status</span><span>${bankDetails.status}</span></div>
+      </div>
+    `;
+    openPrintWindow(`Monthly Statement — ${monthLabel} — Trinco Bites`, htmlBody);
+    toast.success("Monthly Statement opened for printing/saving as PDF.");
+  };
+
+  /** Generates and directly downloads an HTML invoice file for a specific payout.
+   *  Uses Blob download (no popup) — open the file in browser then Ctrl+P to save as PDF. */
+  const handleDownloadPayoutInvoice = (payout: PayoutRecord) => {
+    const htmlBody = `
+      <p class="section-title">Payout Invoice &mdash; ${payout.id}</p>
+      <div class="summary-box">
+        <div class="summary-row"><span>Invoice Number</span><span>${payout.id}</span></div>
+        <div class="summary-row"><span>Settle Date</span><span>${payout.date}</span></div>
+        <div class="summary-row"><span>Recipient Bank</span><span>${bankDetails.bankName}</span></div>
+        <div class="summary-row"><span>Account Holder</span><span>${bankDetails.holderName}</span></div>
+        <div class="summary-row"><span>Account Number</span><span>${bankDetails.accountNumber}</span></div>
+        <div class="summary-row"><span>Branch</span><span>${bankDetails.branch}</span></div>
+        <div class="summary-row"><span>Payment Status</span><span>${payout.status}</span></div>
+        <div class="summary-row"><span>Total Amount Credited</span><span>LKR ${payout.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+      </div>
+      <p style="font-size:10px;color:#888;">This invoice confirms a direct deposit credited to the above bank account by Trinco Bites Payments Platform.</p>
+    `;
+    const filename = `invoice-${payout.id}-${payout.date}.html`;
+    downloadHTML(filename, `Payout Invoice ${payout.id} — Trinco Bites`, htmlBody);
+    toast.success(`Invoice ${payout.id} downloaded! Open the file and press Ctrl+P to save as PDF.`);
   };
 
   return (
@@ -432,9 +712,7 @@ export function PaymentWallet() {
 
         {/* Action button to download monthly statement report */}
         <button
-          onClick={() =>
-            handleSimulateReportExport("monthly-stmt", "Monthly Statement")
-          }
+          onClick={handleDownloadMonthlyStatement}
           className="flex items-center gap-2 px-4 py-2.5 bg-[#FFFCF5] hover:bg-[#F8DDA4]/20 border border-[#F8DDA4]/65 dark:bg-slate-950 dark:border-slate-800 text-[#813405] dark:text-[#F9A03F] text-xs font-black rounded-xl transition cursor-pointer"
         >
           <FileText size={14} />
@@ -798,12 +1076,7 @@ export function PaymentWallet() {
                       </td>
                       <td className="py-3 px-3 text-right">
                         <button
-                          onClick={() =>
-                            handleSimulateReportExport(
-                              `payout-invoice-${payout.id}`,
-                              `Receipt ${payout.id}`,
-                            )
-                          }
+                          onClick={() => handleDownloadPayoutInvoice(payout)}
                           className="text-[10px] font-black text-[#D45113] hover:text-[#813405] dark:text-[#F9A03F] flex items-center justify-end gap-1 cursor-pointer transition ml-auto"
                         >
                           <Download size={11} />
@@ -1092,30 +1365,47 @@ export function PaymentWallet() {
             </h3>
 
             <div className="grid grid-cols-1 gap-2 text-xs font-semibold">
-              {[
-                { key: "txns", name: "Export Transactions Log (CSV)" },
-                { key: "payouts", name: "Export Payout History (PDF)" },
-                { key: "refunds", name: "Export Refund Report (CSV)" },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() =>
-                    handleSimulateReportExport(item.key, item.name)
-                  }
-                  disabled={exportLoadingKey === item.key}
-                  className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between"
-                >
-                  <span>{item.name}</span>
-                  {exportLoadingKey === item.key ? (
-                    <RefreshCw
-                      size={12}
-                      className="animate-spin text-[#D45113]"
-                    />
-                  ) : (
-                    <Download size={12} className="text-slate-400" />
-                  )}
-                </button>
-              ))}
+              {/* Export Transactions Log — CSV download */}
+              <button
+                onClick={handleExportTransactionsCSV}
+                disabled={exportLoadingKey === "txns"}
+                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
+              >
+                <span>Export Transactions Log (CSV)</span>
+                {exportLoadingKey === "txns" ? (
+                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
+                ) : (
+                  <Download size={12} className="text-slate-400" />
+                )}
+              </button>
+
+              {/* Export Payout History — printable PDF */}
+              <button
+                onClick={handleExportPayoutHistoryPDF}
+                disabled={exportLoadingKey === "payouts"}
+                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
+              >
+                <span>Export Payout History (PDF)</span>
+                {exportLoadingKey === "payouts" ? (
+                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
+                ) : (
+                  <Download size={12} className="text-slate-400" />
+                )}
+              </button>
+
+              {/* Export Refund Report — CSV download */}
+              <button
+                onClick={handleExportRefundsCSV}
+                disabled={exportLoadingKey === "refunds"}
+                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
+              >
+                <span>Export Refund Report (CSV)</span>
+                {exportLoadingKey === "refunds" ? (
+                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
+                ) : (
+                  <Download size={12} className="text-slate-400" />
+                )}
+              </button>
             </div>
           </div>
         </div>

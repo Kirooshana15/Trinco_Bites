@@ -48,6 +48,7 @@ import { Rate } from "./pages/user/rate";
 import { Register } from "./pages/user/register";
 import { Success } from "./pages/user/success";
 import { Track } from "./pages/user/track";
+import { Orders } from "./pages/user/orders";
 import { LocationPage } from "./pages/user/location";
 import { RestaurantPage } from "./components/restaurant.$id";
 import { FoodDetailPage } from "./components/food.$id";
@@ -65,6 +66,9 @@ import { AnalyticsReports } from "./pages/resturant/analytics";
 import { Notifications } from "./pages/resturant/notifications";
 import { PaymentWallet } from "./pages/resturant/payments";
 import { AdminDashboard } from "./pages/admin/admin-dashboard";
+import { TermsOfService } from "./pages/user/terms-of-service";
+import { PrivacyPolicy } from "./pages/user/privacy-policy";
+import { ForgotPassword } from "./pages/forgot-password";
 
 
 // Define Routes
@@ -140,6 +144,12 @@ const trackRoute = createRoute({
   component: Track,
 });
 
+const ordersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/orders",
+  component: Orders,
+});
+
 const locationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/location",
@@ -156,6 +166,36 @@ const adminLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/business_login",
   component: AdminLogin,
+});
+
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms-of-service",
+  component: TermsOfService,
+});
+
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy-policy",
+  component: PrivacyPolicy,
+});
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  component: ForgotPassword,
+});
+
+const legacyTermsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: TermsOfService,
+});
+
+const legacyPrivacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy",
+  component: PrivacyPolicy,
 });
 
 // Pathless layout route for restaurant admin
@@ -269,11 +309,17 @@ export const routeTree = rootRoute.addChildren([
   restaurantRoute,
   successRoute,
   trackRoute,
+  ordersRoute,
   locationRoute,
   foodRoute,
   adminLoginRoute,
   restaurantAdminLayoutWithChildren,
   adminDashboardRoute,
+  termsRoute,
+  privacyRoute,
+  legacyTermsRoute,
+  legacyPrivacyRoute,
+  forgotPasswordRoute,
 ]);
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {

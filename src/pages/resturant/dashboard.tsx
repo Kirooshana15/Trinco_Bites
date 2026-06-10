@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingBag, Clock,
@@ -8,6 +9,7 @@ import {
   BellRing, ShieldCheck, HelpCircle, Wallet
 } from "lucide-react";
 import { restaurants, FoodItem } from "@/utils/data/mock";
+import { useAuth } from "@/context/AuthContext";
 
 // Helper for timeframe-based stats mapping
 const getShortName = (name: string) => {
@@ -28,6 +30,7 @@ const getShortName = (name: string) => {
 };
 
 export function RestaurantDashboard() {
+  const { user } = useAuth();
   const [timeframe, setTimeframe] = useState<"today" | "7days" | "30days">("7days");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number, y: number, value: number, day: string } | null>(null);
@@ -106,7 +109,7 @@ export function RestaurantDashboard() {
   };
 
   // Get active menu items from mock database
-  const activeRestaurant = restaurants[0]; // Trinco Spice House
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
   const popularDishes = activeRestaurant.menu.slice(0, 3);
 
   // Custom mock sales count for list
@@ -124,16 +127,80 @@ export function RestaurantDashboard() {
     monthlyEarnings: { path: "M 0 32 Q 10 18 20 28 T 40 12 T 60 8 T 80 2", color: "#10B981" },
   };
 
-  // SVG Chart Coordinates
-  const chartPoints = [
-    { x: 40, y: 99, val: 38400, day: "Mon" },
-    { x: 110, y: 91, val: 42500, day: "Tue" },
-    { x: 180, y: 105, val: 35000, day: "Wed" },
-    { x: 250, y: 80, val: 48250, day: "Thu" },
-    { x: 320, y: 70, val: 54000, day: "Fri" },
-    { x: 390, y: 53, val: 62800, day: "Sat" },
-    { x: 460, y: 62, val: 58100, day: "Sun" },
-  ];
+  // Clear hover state when timeframe changes
+  useEffect(() => {
+    setHoveredPoint(null);
+  }, [timeframe]);
+
+  // Dynamic Chart Dataset selection based on timeframe
+  const getChartRawData = () => {
+    switch (timeframe) {
+      case "today":
+        return [
+          { day: "08:00", val: 4200 },
+          { day: "11:00", val: 7800 },
+          { day: "14:00", val: 12500 },
+          { day: "17:00", val: 5800 },
+          { day: "20:00", val: 15400 },
+          { day: "23:00", val: 2550 },
+        ];
+      case "30days":
+        return [
+          { day: "Day 5", val: 185000 },
+          { day: "Day 10", val: 220000 },
+          { day: "Day 15", val: 195000 },
+          { day: "Day 20", val: 240000 },
+          { day: "Day 25", val: 260000 },
+          { day: "Day 30", val: 285000 },
+        ];
+      case "7days":
+      default:
+        return [
+          { day: "Mon", val: 38400 },
+          { day: "Tue", val: 42500 },
+          { day: "Wed", val: 35000 },
+          { day: "Thu", val: 48250 },
+          { day: "Fri", val: 54000 },
+          { day: "Sat", val: 62800 },
+          { day: "Sun", val: 58100 },
+        ];
+    }
+  };
+
+  const rawData = getChartRawData();
+  const maxVal = Math.max(1, ...rawData.map(d => d.val));
+  const minY = 50;
+  const maxY = 160;
+
+  const chartPoints = rawData.map((pt, i) => {
+    const x = 40 + i * (420 / (rawData.length - 1));
+    const y = maxY - ((pt.val / maxVal) * (maxY - minY));
+    return {
+      x,
+      y,
+      val: pt.val,
+      day: pt.day,
+    };
+  });
+
+  const getCurvePath = (points: { x: number; y: number }[]) => {
+    if (points.length === 0) return "";
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const cpX1 = p0.x + (p1.x - p0.x) / 3;
+      const cpY1 = p0.y;
+      const cpX2 = p1.x - (p1.x - p0.x) / 3;
+      const cpY2 = p1.y;
+      d += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${p1.x} ${p1.y}`;
+    }
+    return d;
+  };
+
+  const curvePath = getCurvePath(chartPoints);
+  const fillPath = curvePath ? `${curvePath} L 460 170 L 40 170 Z` : "";
+
 
   return (
     <motion.div
@@ -472,13 +539,13 @@ export function RestaurantDashboard() {
 
                 {/* Curve Fill Area */}
                 <path
-                  d="M 40 99 C 75 90 110 91 180 105 C 215 110 250 80 250 80 C 285 80 320 70 320 70 C 355 70 390 53 390 53 C 425 53 460 62 460 62 L 460 170 L 40 170 Z"
+                  d={fillPath}
                   fill="url(#chart-area-grad)"
                 />
 
                 {/* Main Curved line */}
                 <path
-                  d="M 40 99 C 75 90 110 91 180 105 C 215 110 250 80 250 80 C 285 80 320 70 320 70 C 355 70 390 53 390 53 C 425 53 460 62 460 62"
+                  d={curvePath}
                   fill="none"
                   stroke="url(#chart-stroke-grad)"
                   strokeWidth="2.5"
@@ -527,33 +594,33 @@ export function RestaurantDashboard() {
             <span className="text-md font-bold text-slate-800 dark:text-slate-100 -mt-2">Quick Operations</span>
 
             <div className="grid grid-cols-2 gap-3 mt-1">
-              <button className="flex flex-col items-center justify-center p-4 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded-2xl hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 shadow-sm transition duration-200 text-center group cursor-pointer">
+              <Link to="/restaurant/menu" hash="add" className="flex flex-col items-center justify-center p-4 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded-2xl hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 shadow-sm transition duration-200 text-center group cursor-pointer decoration-none">
                 <div className="p-2 rounded-xl bg-[#71A066] dark:bg-emerald-600 text-white group-hover:scale-105 transition-transform">
                   <Plus size={16} />
                 </div>
                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2 tracking-tight">Add Dish</span>
-              </button>
+              </Link>
 
-              <button className="flex flex-col items-center justify-center p-4 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/10 rounded-2xl hover:bg-amber-500/10 dark:hover:bg-amber-500/15 shadow-sm transition duration-200 text-center group cursor-pointer">
+              <Link to="/restaurant/offers" hash="create" className="flex flex-col items-center justify-center p-4 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/10 rounded-2xl hover:bg-amber-500/10 dark:hover:bg-amber-500/15 shadow-sm transition duration-200 text-center group cursor-pointer decoration-none">
                 <div className="p-2 rounded-xl bg-amber-500 text-white group-hover:scale-105 transition-transform">
                   <Award size={16} />
                 </div>
                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2 tracking-tight">Create Coupon</span>
-              </button>
+              </Link>
 
-              <button className="flex flex-col items-center justify-center p-4 bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/10 rounded-2xl hover:bg-blue-500/10 dark:hover:bg-blue-500/15 shadow-sm transition duration-200 text-center group cursor-pointer">
+              <Link to="/restaurant/menu" className="flex flex-col items-center justify-center p-4 bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/10 rounded-2xl hover:bg-blue-500/10 dark:hover:bg-blue-500/15 shadow-sm transition duration-200 text-center group cursor-pointer decoration-none">
                 <div className="p-2 rounded-xl bg-blue-500 text-white group-hover:scale-105 transition-transform">
                   <Utensils size={16} />
                 </div>
                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2 tracking-tight">Update Stock</span>
-              </button>
+              </Link>
 
-              <button className="flex flex-col items-center justify-center p-4 bg-slate-500/5 dark:bg-slate-500/10 border border-slate-500/10 rounded-2xl hover:bg-slate-500/10 dark:hover:bg-slate-500/15 shadow-sm transition duration-200 text-center group cursor-pointer">
+              <Link to="/restaurant/payments" className="flex flex-col items-center justify-center p-4 bg-slate-500/5 dark:bg-slate-500/10 border border-slate-500/10 rounded-2xl hover:bg-slate-500/10 dark:hover:bg-slate-500/15 shadow-sm transition duration-200 text-center group cursor-pointer decoration-none">
                 <div className="p-2 rounded-xl bg-slate-500 text-white group-hover:scale-105 transition-transform">
                   <Wallet size={16} />
                 </div>
                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2 tracking-tight">Wallet Info</span>
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -739,22 +806,22 @@ export function RestaurantDashboard() {
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Live Feed</span>
                 <span className="text-lg font-bold text-slate-800 dark:text-slate-100 mt-0.5">Recent Orders</span>
               </div>
-              <button className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-350 dark:hover:text-slate-100 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/60 transition duration-200 shadow-sm cursor-pointer">
+              <Link to="/restaurant/orders" className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-350 dark:hover:text-slate-100 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/60 transition duration-200 shadow-sm cursor-pointer decoration-none">
                 View All Orders <ChevronRight size={12} />
-              </button>
+              </Link>
             </div>
 
             {/* Responsive Table */}
-            <div className="overflow-x-auto custom-scrollbar -mx-6 px-6">
-              <table className="w-full text-left border-collapse min-w-[500px]">
+            <div className="overflow-x-auto thin-scrollbar -mx-6 px-6">
+              <table className="w-full text-left border-collapse min-w-[800px] table-fixed">
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest pb-3">
-                    <th className="py-3 pr-4">Order ID</th>
-                    <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Items</th>
-                    <th className="py-3 px-4 text-right">Amount</th>
-                    <th className="py-3 px-4">Time</th>
-                    <th className="py-3 pl-4 text-right">Status</th>
+                    <th className="py-3 pr-4 w-[90px]">Order ID</th>
+                    <th className="py-3 px-4 w-[160px]">Customer</th>
+                    <th className="py-3 px-4 w-[240px]">Items</th>
+                    <th className="py-3 px-4 text-right w-[100px]">Amount</th>
+                    <th className="py-3 px-4 w-[100px]">Time</th>
+                    <th className="py-3 pl-4 text-right w-[110px]">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-600 dark:text-slate-300 font-medium">
@@ -762,16 +829,27 @@ export function RestaurantDashboard() {
                   <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
                     <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8942</td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm">NR</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">Nithya R.</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">NR</div>
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Nithya R.">Nithya R.</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500">1x Chicken Biryani + 1x Lime Mojito</td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100">LKR 1,500</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal">10 mins ago</td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col gap-1 items-start max-w-full">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Chicken Biryani">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Chicken Biryani</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Lime Mojito">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Lime Mojito</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,500</td>
+                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">10 mins ago</td>
                     <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm whitespace-nowrap">
                         Completed
                       </span>
                     </td>
@@ -781,16 +859,23 @@ export function RestaurantDashboard() {
                   <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
                     <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8941</td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shadow-sm">DJ</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">Daniel J.</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">DJ</div>
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Daniel J.">Daniel J.</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500">2x Chicken Kottu</td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100">LKR 1,700</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal">25 mins ago</td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col gap-1 items-start max-w-full">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="2x Chicken Kottu">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">2x</span>
+                          <span className="truncate max-w-[140px]">Chicken Kottu</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,700</td>
+                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">25 mins ago</td>
                     <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-900/20 shadow-sm">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-900/20 shadow-sm whitespace-nowrap">
                         Preparing
                       </span>
                     </td>
@@ -800,16 +885,23 @@ export function RestaurantDashboard() {
                   <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
                     <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8940</td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 flex items-center justify-center text-[10px] font-bold shadow-sm">AS</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">Archana S.</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">AS</div>
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Archana S.">Archana S.</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500">1x Seafood Fried Rice</td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100">LKR 1,200</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal">45 mins ago</td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col gap-1 items-start max-w-full">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Seafood Fried Rice">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Seafood Fried Rice</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,200</td>
+                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">45 mins ago</td>
                     <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 px-2.5 py-1 rounded-full border border-amber-100 dark:border-amber-900/20 shadow-sm">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 px-2.5 py-1 rounded-full border border-amber-100 dark:border-amber-900/20 shadow-sm whitespace-nowrap">
                         Pending
                       </span>
                     </td>
@@ -819,16 +911,27 @@ export function RestaurantDashboard() {
                   <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
                     <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8939</td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm">RK</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">Ramesh K.</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">RK</div>
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Ramesh K.">Ramesh K.</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500">1x Veg Fried Rice + 1x Apple Mojito</td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100">LKR 1,180</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal">1 hr ago</td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col gap-1 items-start max-w-full">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-350 border border-slate-200/40 dark:border-slate-700/30" title="1x Veg Fried Rice">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Veg Fried Rice</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-355 border border-slate-200/40 dark:border-slate-700/30" title="1x Apple Mojito">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Apple Mojito</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,180</td>
+                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">1 hr ago</td>
                     <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm whitespace-nowrap">
                         Completed
                       </span>
                     </td>
@@ -838,16 +941,23 @@ export function RestaurantDashboard() {
                   <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
                     <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8938</td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 flex items-center justify-center text-[10px] font-bold shadow-sm">SM</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">Shamil M.</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">SM</div>
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Shamil M.">Shamil M.</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500">1x Double Cheeseburger</td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100">LKR 1,250</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal">2 hrs ago</td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col gap-1 items-start max-w-full">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Double Cheeseburger">
+                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
+                          <span className="truncate max-w-[140px]">Double Cheeseburger</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,250</td>
+                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">2 hrs ago</td>
                     <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 px-2.5 py-1 rounded-full border border-rose-100 dark:border-rose-900/20 shadow-sm">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 px-2.5 py-1 rounded-full border border-rose-100 dark:border-rose-900/20 shadow-sm whitespace-nowrap">
                         Cancelled
                       </span>
                     </td>

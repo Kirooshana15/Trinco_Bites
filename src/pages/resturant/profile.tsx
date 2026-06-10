@@ -5,10 +5,14 @@ import {
   CheckCircle2, AlertTriangle, Trash2, Plus, Globe, Facebook,
   Instagram, Youtube, Heart, Sparkles, Compass, Eye,
   Lock, User, ExternalLink, Shield, X, ChevronRight, Settings, Check,
-  Info, AlertCircle, HelpCircle, ArrowRight, Laptop, Calendar, MessageSquare
+  Info, AlertCircle, HelpCircle, ArrowRight, Laptop, Calendar, MessageSquare, Star
 } from "lucide-react";
 import { toast } from "sonner";
 import { C } from "@/utils/theme";
+import { useAuth } from "@/context/AuthContext";
+import { restaurants } from "@/utils/data/mock";
+import { useRestaurants } from "@/context/RestaurantContext";
+import { Link } from "@tanstack/react-router";
 
 // Types for profile state
 interface WeeklyHour {
@@ -26,15 +30,12 @@ interface ProfileState {
   whatsapp: string;
   email: string;
   supportNumber: string;
-  businessRegNo: string;
-  establishedYear: string;
-  priceRange: string; // "Rs" | "Rs Rs" | "Rs Rs Rs" | "Rs Rs Rs Rs"
   halalFriendly: boolean;
   vegetarianFriendly: boolean;
   dineIn: boolean;
   takeaway: boolean;
   delivery: boolean;
-  
+
   // Location
   streetAddress: string;
   city: string;
@@ -43,27 +44,27 @@ interface ProfileState {
   lat: string;
   lng: string;
   deliveryRadius: number; // in km
-  
+
   // Delivery
   estimatedDeliveryTime: string;
   deliveryFee: number;
   minOrder: number;
   freeDeliveryThreshold: number;
-  
+
   // Opening Hours
   openingTime: string;
   closingTime: string;
   weeklyHours: Record<string, WeeklyHour>;
   holidayMode: boolean;
   temporaryClosure: boolean;
-  
+
   // Social Links
   facebook: string;
   instagram: string;
   tiktok: string;
   youtube: string;
   website: string;
-  
+
   // Settings
   acceptOrders: boolean;
   showPublicly: boolean;
@@ -71,6 +72,10 @@ interface ProfileState {
   autoAcceptOrders: boolean;
   cashOnDelivery: boolean;
   featuredRestaurant: boolean;
+
+  // Reviews and Ratings
+  rating: number;
+  reviewsCount: number;
 }
 
 export function RestaurantProfile() {
@@ -87,49 +92,50 @@ export function RestaurantProfile() {
 
   const [activeTab, setActiveTab] = useState("overview");
   const [isSaving, setIsSaving] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [isMobilePreviewOpen, setIsMobilePreviewOpen] = useState(false);
-  const [logoImage, setLogoImage] = useState<string>("https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=200&auto=format&fit=crop&q=80");
+  const { user } = useAuth();
+  const { updateRestaurantProfile } = useRestaurants();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
+  const [logoImage, setLogoImage] = useState<string>(activeRestaurant.image);
   const [coverImage, setCoverImage] = useState<string>("https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1000&auto=format&fit=crop&q=80");
-  
+
   // Custom mock cuisine items
   const standardCuisines = [
-    "Srilankan", "Seafood", "Kottu", "Biryani", "Burgers", 
-    "Pizza", "Chinese", "Desserts", "South Indian", "Juices"
+    "Kottu", "Seafood", "Noodles", "Biryani", "Burgers",
+    "Pizza", "Soft Drinks", "Desserts", "Rice and Curry", "Juices", "Milkshake", "Mojito"
   ];
   // Profile data state
   const [profile, setProfile] = useState<ProfileState>({
-    name: "Trinco Spice House",
-    tagline: "Authentic Coastal Sri Lankan Flavors",
-    description: "Trinco Spice House brings you the true taste of Trincomalee's culinary heritage. Specializing in fresh coastal seafood, aromatic traditional crab curry, and spicy stone-tossed kottu, we pride ourselves on using locally sourced hand-ground spices and traditional clay-pot cooking techniques passed down through generations.",
-    cuisineTypes: ["Srilankan", "Seafood", "Kottu", "Biryani"],
+    name: activeRestaurant.name,
+    tagline: `Authentic ${activeRestaurant.category} Flavors`,
+    description: `${activeRestaurant.name} brings you the true taste of Trincomalee's culinary heritage. Specializing in ${activeRestaurant.category.toLowerCase()}, we pride ourselves on using locally sourced ingredients and traditional cooking techniques passed down through generations.`,
+    cuisineTypes: activeRestaurant.categories.slice(0, 4),
     phone: "+94 26 222 3456",
     whatsapp: "+94 77 123 4567",
-    email: "contact@trincospicehouse.com",
+    email: `${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}@gmail.com`,
     supportNumber: "+94 26 222 3458",
-    businessRegNo: "TR-2024-8893B",
-    establishedYear: "2018",
-    priceRange: "Rs Rs",
     halalFriendly: true,
     vegetarianFriendly: true,
     dineIn: true,
     takeaway: true,
     delivery: true,
-    
+
     // Location
-    streetAddress: "42 Dockyard Road",
+    streetAddress: activeRestaurant.location.split(",")[0]?.trim() || "42 Dockyard Road",
     city: "Trincomalee",
     district: "Trincomalee",
     postalCode: "31000",
     lat: "8.5714",
     lng: "81.2335",
     deliveryRadius: 8,
-    
+
     // Delivery Settings
-    estimatedDeliveryTime: "25-35 min",
-    deliveryFee: 150,
+    estimatedDeliveryTime: activeRestaurant.deliveryTime || "25-35 min",
+    deliveryFee: activeRestaurant.deliveryFee ?? 150,
     minOrder: 500,
     freeDeliveryThreshold: 2500,
-    
+
     // Opening Hours
     openingTime: "08:00 AM",
     closingTime: "10:00 PM",
@@ -144,21 +150,25 @@ export function RestaurantProfile() {
     },
     holidayMode: false,
     temporaryClosure: false,
-    
+
     // Social Links
-    facebook: "https://facebook.com/trincospicehouse",
-    instagram: "https://instagram.com/trincospicehouse",
-    tiktok: "https://tiktok.com/@trincospicehouse",
-    youtube: "https://youtube.com/c/trincospicehouse",
-    website: "https://trincospicehouse.com",
-    
+    facebook: `https://facebook.com/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
+    instagram: `https://instagram.com/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
+    tiktok: `https://tiktok.com/@${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
+    youtube: `https://youtube.com/c/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
+    website: `https://${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}.com`,
+
     // Settings
     acceptOrders: true,
     showPublicly: true,
     vacationMode: false,
     autoAcceptOrders: true,
     cashOnDelivery: true,
-    featuredRestaurant: false
+    featuredRestaurant: false,
+
+    // Reviews and Ratings
+    rating: activeRestaurant.rating ?? 4.5,
+    reviewsCount: activeRestaurant.reviewsCount ?? 184
   });
 
   // Calculate profile completion percentage
@@ -169,7 +179,6 @@ export function RestaurantProfile() {
       { name: "Basic Details (Name & Tagline)", done: !!profile.name && !!profile.tagline, ref: "overview" },
       { name: "Description", done: profile.description.length >= 50, ref: "overview" },
       { name: "Contact details", done: !!profile.phone && !!profile.email, ref: "overview" },
-      { name: "Business Registration", done: !!profile.businessRegNo, ref: "business" },
       { name: "Location Details", done: !!profile.streetAddress && !!profile.city, ref: "location" },
       { name: "Delivery Settings", done: profile.deliveryFee >= 0 && profile.minOrder > 0, ref: "delivery" },
       { name: "Weekly Operating Hours", done: Object.values(profile.weeklyHours).some(d => d.open), ref: "hours" },
@@ -188,6 +197,9 @@ export function RestaurantProfile() {
       ...prev,
       [field]: value
     }));
+    if (field === "email") {
+      setEmailError(null);
+    }
   };
 
   // Toggle cuisine choice
@@ -233,16 +245,6 @@ export function RestaurantProfile() {
     });
   };
 
-  // Simulator for delivery fee
-  const [calcDistance, setCalcDistance] = useState<number>(5);
-  const simulatedFee = useMemo(() => {
-    if (!profile.delivery) return 0;
-    if (calcDistance > profile.deliveryRadius) return -1; // Out of range
-    const baseFee = profile.deliveryFee;
-    const extraKm = Math.max(0, calcDistance - 3);
-    const calculated = baseFee + (extraKm * 25);
-    return profile.freeDeliveryThreshold > 0 && calculated > 0 && calcDistance <= 5 ? calculated : calculated;
-  }, [calcDistance, profile.deliveryFee, profile.deliveryRadius, profile.delivery, profile.freeDeliveryThreshold]);
 
   // Detect location simulator
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
@@ -288,8 +290,62 @@ export function RestaurantProfile() {
 
   // Main save action
   const handleSaveAll = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!profile.email.trim()) {
+      setActiveTab("overview");
+      setEmailError("Public email address is required");
+      toast.error("Validation Error", {
+        description: "Please enter a store public email address.",
+        duration: 4000
+      });
+      return;
+    }
+    if (!emailRegex.test(profile.email.trim())) {
+      setActiveTab("overview");
+      setEmailError("Please enter a valid email address (e.g. store@example.com)");
+      toast.error("Validation Error", {
+        description: "Please enter a valid email address format.",
+        duration: 4000
+      });
+      return;
+    }
+
+    setEmailError(null);
     setIsSaving(true);
     setTimeout(() => {
+      // Persist profile changes to the shared restaurant store (context + localStorage)
+      updateRestaurantProfile(activeRestaurant.id, {
+        name: profile.name,
+        tagline: profile.tagline,
+        description: profile.description,
+        phone: profile.phone,
+        whatsapp: profile.whatsapp,
+        email: profile.email,
+        location: profile.streetAddress ? `${profile.streetAddress}, ${profile.city}` : activeRestaurant.location,
+        streetAddress: profile.streetAddress,
+        city: profile.city,
+        openingTime: profile.openingTime,
+        closingTime: profile.closingTime,
+        deliveryTime: profile.estimatedDeliveryTime,
+        deliveryFee: profile.deliveryFee,
+        deliveryAvailable: profile.delivery,
+        deliveryRadius: profile.deliveryRadius,
+        minOrder: profile.minOrder,
+        halalFriendly: profile.halalFriendly,
+        vegetarianFriendly: profile.vegetarianFriendly,
+        dineIn: profile.dineIn,
+        takeaway: profile.takeaway,
+        delivery: profile.delivery,
+        facebook: profile.facebook,
+        instagram: profile.instagram,
+        tiktok: profile.tiktok,
+        youtube: profile.youtube,
+        website: profile.website,
+        logoImage: logoImage,
+        coverImage: coverImage,
+        rating: Number(profile.rating),
+        reviewsCount: Number(profile.reviewsCount),
+      });
       setIsSaving(false);
       toast.success("Restaurant Profile saved successfully!", {
         description: "All changes are now live and visible to customers.",
@@ -314,7 +370,7 @@ export function RestaurantProfile() {
       className="flex flex-col gap-6"
     >
       {/* ── STICKY HEADER ─────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-40 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md -mx-4 md:-mx-6 px-4 md:px-6 py-4 border-b border-zinc-200/80 dark:border-zinc-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl px-5 py-4 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl md:text-3xl font-black text-brand-brown dark:text-brand-orange tracking-tight">
@@ -330,7 +386,7 @@ export function RestaurantProfile() {
             Manage your customer-facing digital storefront
           </p>
         </div>
-        
+
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setIsMobilePreviewOpen(true)}
@@ -339,7 +395,7 @@ export function RestaurantProfile() {
             <Eye className="h-4 w-4" />
             Live Preview
           </button>
-          
+
           <button
             onClick={handleSaveAll}
             disabled={isSaving}
@@ -365,7 +421,7 @@ export function RestaurantProfile() {
       </div>
 
       {/* ── PROFILE COMPLETION PROGRESS CARD ──────────────────────────── */}
-      <motion.div 
+      <motion.div
         layout
         className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl p-5 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6"
       >
@@ -403,8 +459,8 @@ export function RestaurantProfile() {
               )}
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {completionDetails.percentage === 100 
-                ? "Your digital storefront is 100% complete and fully optimized!" 
+              {completionDetails.percentage === 100
+                ? "Your digital storefront is 100% complete and fully optimized!"
                 : "Complete all sections to build trust and rank higher in customer searches."}
             </p>
           </div>
@@ -430,7 +486,7 @@ export function RestaurantProfile() {
       </motion.div>
 
       {/* ── TAB NAVIGATION ────────────────────────────────────────────── */}
-      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 pb-2 md:mx-0 md:px-0">
+      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 pb-2 md:mx-0 md:px-0 sticky top-0 z-30 bg-[#FAF7F2]/95 dark:bg-zinc-900/95 backdrop-blur-md -mt-2 pt-2">
         <div className="flex border-b border-zinc-200/80 dark:border-zinc-800/80 min-w-max">
           {tabs.map((tab) => {
             const TabIcon = tab.icon;
@@ -439,11 +495,10 @@ export function RestaurantProfile() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex items-center gap-2 px-5 py-3 text-sm font-bold tracking-tight transition-all cursor-pointer pb-3.5 border-b-2 ${
-                  isActive 
-                    ? "text-brand-burnt dark:text-brand-orange border-brand-burnt dark:border-brand-orange" 
-                    : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 border-transparent"
-                }`}
+                className={`relative flex items-center gap-2 px-5 py-3 text-sm font-bold tracking-tight transition-all cursor-pointer pb-3.5 border-b-2 ${isActive
+                  ? "text-brand-burnt dark:text-brand-orange border-brand-burnt dark:border-brand-orange"
+                  : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 border-transparent"
+                  }`}
               >
                 <TabIcon className="h-4.5 w-4.5" />
                 <span>{tab.label}</span>
@@ -480,21 +535,20 @@ export function RestaurantProfile() {
                     <h2 className="text-lg font-black text-brand-brown dark:text-brand-orange tracking-tight">Basic Visuals & Identity</h2>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">Upload your restaurant brand assets and establish your public identity.</p>
                   </div>
-                  
+
                   {/* Logo and Cover Uploaders */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     {/* Logo Uploader */}
                     <div className="md:col-span-1 flex flex-col gap-2">
                       <label className="text-xs font-bold uppercase tracking-wider text-brand-brown dark:text-brand-orange">Logo Badge</label>
-                      <div 
+                      <div
                         onDragOver={(e) => { e.preventDefault(); setIsDragOverLogo(true); }}
                         onDragLeave={() => setIsDragOverLogo(false)}
                         onDrop={simulateLogoUpload}
-                        className={`relative aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-all overflow-hidden ${
-                          isDragOverLogo 
-                            ? 'border-brand-burnt bg-brand-burnt/5 dark:border-brand-orange' 
-                            : 'border-zinc-300 hover:border-zinc-400 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-900/40'
-                        }`}
+                        className={`relative aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-all overflow-hidden ${isDragOverLogo
+                          ? 'border-brand-burnt bg-brand-burnt/5 dark:border-brand-orange'
+                          : 'border-zinc-300 hover:border-zinc-400 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-900/40'
+                          }`}
                       >
                         {logoImage ? (
                           <>
@@ -519,19 +573,18 @@ export function RestaurantProfile() {
                         />
                       </div>
                     </div>
-                    
+
                     {/* Cover Uploader */}
                     <div className="md:col-span-2 flex flex-col gap-2">
                       <label className="text-xs font-bold uppercase tracking-wider text-brand-brown dark:text-brand-orange">Hero Cover Image</label>
-                      <div 
+                      <div
                         onDragOver={(e) => { e.preventDefault(); setIsDragOverCover(true); }}
                         onDragLeave={() => setIsDragOverCover(false)}
                         onDrop={simulateCoverUpload}
-                        className={`relative aspect-[16/7] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-all overflow-hidden ${
-                          isDragOverCover 
-                            ? 'border-brand-burnt bg-brand-burnt/5 dark:border-brand-orange' 
-                            : 'border-zinc-300 hover:border-zinc-400 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-900/40'
-                        }`}
+                        className={`relative aspect-[16/7] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-all overflow-hidden ${isDragOverCover
+                          ? 'border-brand-burnt bg-brand-burnt/5 dark:border-brand-orange'
+                          : 'border-zinc-300 hover:border-zinc-400 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-900/40'
+                          }`}
                       >
                         {coverImage ? (
                           <>
@@ -562,7 +615,7 @@ export function RestaurantProfile() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Restaurant Name</label>
-                      <input 
+                      <input
                         type="text"
                         value={profile.name}
                         onChange={(e) => handleInputChange("name", e.target.value)}
@@ -572,13 +625,51 @@ export function RestaurantProfile() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Slogan / Tagline</label>
-                      <input 
+                      <input
                         type="text"
                         value={profile.tagline}
                         onChange={(e) => handleInputChange("tagline", e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                         placeholder="e.g. Authentic Coastal Sri Lankan Flavors"
                       />
+                    </div>
+                  </div>
+
+                  {/* Reviews & Ratings Settings inside Overview */}
+                  <div className="border-t border-zinc-200/80 dark:border-zinc-700/50 pt-5 flex flex-col gap-4">
+                    <h3 className="text-sm font-extrabold text-brand-brown dark:text-brand-orange uppercase tracking-wider">Reviews & Ratings Display Settings</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Public Rating (0.0 - 5.0)</label>
+                        <div className="relative">
+                          <Star className="absolute left-3.5 top-3 h-4 w-4 text-amber-500 fill-amber-500" />
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="5"
+                            value={profile.rating}
+                            onChange={(e) => handleInputChange("rating", Math.min(5, Math.max(0, parseFloat(e.target.value) || 0)))}
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
+                            placeholder="e.g. 4.8"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Number of Reviews</label>
+                        <div className="relative">
+                          <MessageSquare className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" />
+                          <input
+                            type="number"
+                            min="0"
+                            value={profile.reviewsCount}
+                            onChange={(e) => handleInputChange("reviewsCount", Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
+                            placeholder="e.g. 184"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -590,11 +681,11 @@ export function RestaurantProfile() {
                         {profile.description.length} chars (min 50 recomended)
                       </span>
                     </div>
-                    <textarea 
+                    <textarea
                       value={profile.description}
                       onChange={(e) => handleInputChange("description", e.target.value)}
                       rows={4}
-                      className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200 resize-none leading-relaxed"
+                      className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200 resize-none leading-relaxed"
                       placeholder="Tell customers about your kitchen's unique qualities, culinary specialties, history..."
                     />
                   </div>
@@ -609,11 +700,10 @@ export function RestaurantProfile() {
                           <button
                             key={cuisine}
                             onClick={() => toggleCuisine(cuisine)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                              isSelected 
-                                ? 'bg-brand-burnt text-white dark:bg-brand-orange dark:text-brand-brown shadow-sm scale-[1.03]' 
-                                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-700/50 dark:hover:bg-zinc-700 dark:text-zinc-300'
-                            }`}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${isSelected
+                              ? 'bg-brand-burnt text-white dark:bg-brand-orange dark:text-brand-brown shadow-sm scale-[1.03]'
+                              : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-700/50 dark:hover:bg-zinc-700 dark:text-zinc-300'
+                              }`}
                           >
                             <span>{cuisine}</span>
                             {isSelected ? <Check className="h-3 w-3 stroke-[2.5]" /> : <Plus className="h-3 w-3" />}
@@ -631,56 +721,55 @@ export function RestaurantProfile() {
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Store Primary Phone</label>
                         <div className="relative">
                           <Phone className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" />
-                          <input 
+                          <input
                             type="text"
                             value={profile.phone}
                             onChange={(e) => handleInputChange("phone", e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                             placeholder="+94 XX XXX XXXX"
                           />
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Public WhatsApp (Orders)</label>
-                        <div className="relative">
-                          <MessageSquare className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" />
-                          <input 
-                            type="text"
-                            value={profile.whatsapp}
-                            onChange={(e) => handleInputChange("whatsapp", e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
-                            placeholder="+94 XX XXX XXXX"
-                          />
-                        </div>
-                      </div>
+
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Store Public Email</label>
                         <div className="relative">
                           <Mail className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" />
-                          <input 
+                          <input
                             type="email"
                             value={profile.email}
                             onChange={(e) => handleInputChange("email", e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                            className={`w-full pl-10 pr-4 py-2.5 rounded-xl border bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 text-sm font-bold text-zinc-800 dark:text-zinc-200 transition-all ${emailError
+                              ? "border-red-550 focus:ring-red-550/20"
+                              : "border-zinc-300 dark:border-zinc-700 focus:ring-brand-burnt dark:focus:ring-brand-orange"
+                              }`}
                             placeholder="store@example.com"
                           />
                         </div>
+                        {emailError && (
+                          <span className="text-[11px] font-bold text-red-550 flex items-center gap-1 mt-0.5">
+                            <AlertCircle size={12} />
+                            {emailError}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Store Customer Support Line</label>
                         <div className="relative">
                           <Info className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" />
-                          <input 
+                          <input
                             type="text"
                             value={profile.supportNumber}
                             onChange={(e) => handleInputChange("supportNumber", e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                             placeholder="+94 XX XXX XXXX"
                           />
                         </div>
                       </div>
                     </div>
                   </div>
+
+
                 </div>
               )}
 
@@ -689,77 +778,23 @@ export function RestaurantProfile() {
                 <div className="flex flex-col gap-6">
                   <div>
                     <h2 className="text-lg font-black text-brand-brown dark:text-brand-orange tracking-tight">Business Profile & Verifications</h2>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Configure administrative parameters, pricing, and cuisine standards.</p>
-                  </div>
-
-                  {/* Reg number and established */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Business Registration No. (BRN)</label>
-                      <input 
-                        type="text"
-                        value={profile.businessRegNo}
-                        onChange={(e) => handleInputChange("businessRegNo", e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
-                        placeholder="e.g. W-2024-XXXXX"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Established Year</label>
-                      <input 
-                        type="number"
-                        value={profile.establishedYear}
-                        onChange={(e) => handleInputChange("establishedYear", e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
-                        placeholder="e.g. 2018"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Price range selector */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Price Segment</label>
-                    <div className="grid grid-cols-4 gap-2.5">
-                      {[
-                        { label: "Budget", symbol: "Rs" },
-                        { label: "Moderate", symbol: "Rs Rs" },
-                        { label: "Premium", symbol: "Rs Rs Rs" },
-                        { label: "Luxury", symbol: "Rs Rs Rs Rs" }
-                      ].map((range) => {
-                        const isSelected = profile.priceRange === range.symbol;
-                        return (
-                          <button
-                            key={range.symbol}
-                            type="button"
-                            onClick={() => handleInputChange("priceRange", range.symbol)}
-                            className={`py-3 px-2 text-center rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                              isSelected 
-                                ? 'bg-brand-burnt/15 border-brand-burnt text-brand-burnt dark:bg-brand-orange/10 dark:border-brand-orange dark:text-brand-orange' 
-                                : 'border-zinc-200 bg-zinc-50/50 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/20 dark:text-zinc-400'
-                            }`}
-                          >
-                            <div className="text-sm font-black tracking-wide">{range.symbol}</div>
-                            <div className="text-[9px] mt-0.5 opacity-80">{range.label}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Configure dietary certifications and fulfillment standards.</p>
                   </div>
 
                   {/* Dietary Certifications and Availability switches */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-zinc-200/80 dark:border-zinc-700/50 pt-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col gap-4">
                       <h3 className="text-xs font-bold uppercase tracking-widest text-brand-brown dark:text-brand-orange">Dietary Certifications</h3>
-                      
+
                       {/* Halal Friendly */}
                       <label className="flex items-center justify-between p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-700/50 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
                         <div>
                           <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">100% Halal Certified</div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">Show Halal assurance badge on customer app</div>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          checked={profile.halalFriendly} 
+                        <input
+                          type="checkbox"
+                          checked={profile.halalFriendly}
                           onChange={(e) => handleInputChange("halalFriendly", e.target.checked)}
                           className="h-4 w-4 rounded border-zinc-300 text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
                         />
@@ -771,9 +806,9 @@ export function RestaurantProfile() {
                           <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">Vegetarian Options Available</div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">Highlight veggie/vegan friendliness</div>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          checked={profile.vegetarianFriendly} 
+                        <input
+                          type="checkbox"
+                          checked={profile.vegetarianFriendly}
                           onChange={(e) => handleInputChange("vegetarianFriendly", e.target.checked)}
                           className="h-4 w-4 rounded border-zinc-300 text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
                         />
@@ -782,20 +817,8 @@ export function RestaurantProfile() {
 
                     <div className="flex flex-col gap-4">
                       <h3 className="text-xs font-bold uppercase tracking-widest text-brand-brown dark:text-brand-orange">Fulfillment Methods</h3>
-                      
-                      {/* Dine-In Toggle */}
-                      <label className="flex items-center justify-between p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-700/50 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
-                        <div>
-                          <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">Dine-In Bookings</div>
-                          <div className="text-[10px] text-zinc-400 mt-0.5">Allow table reservations & qr ordering</div>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={profile.dineIn} 
-                          onChange={(e) => handleInputChange("dineIn", e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
-                        />
-                      </label>
+
+
 
                       {/* Takeaway Toggle */}
                       <label className="flex items-center justify-between p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-700/50 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
@@ -803,9 +826,9 @@ export function RestaurantProfile() {
                           <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">Takeaway / Pick-up</div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">Allow customers to order and pick up themselves</div>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          checked={profile.takeaway} 
+                        <input
+                          type="checkbox"
+                          checked={profile.takeaway}
                           onChange={(e) => handleInputChange("takeaway", e.target.checked)}
                           className="h-4 w-4 rounded border-zinc-300 text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
                         />
@@ -817,9 +840,9 @@ export function RestaurantProfile() {
                           <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">Home Delivery Services</div>
                           <div className="text-[10px] text-zinc-400 mt-0.5">Deliver food directly to customer's doorsteps</div>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          checked={profile.delivery} 
+                        <input
+                          type="checkbox"
+                          checked={profile.delivery}
                           onChange={(e) => handleInputChange("delivery", e.target.checked)}
                           className="h-4 w-4 rounded border-zinc-300 text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
                         />
@@ -840,45 +863,36 @@ export function RestaurantProfile() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Street Address</label>
-                      <input 
+                      <input
                         type="text"
                         value={profile.streetAddress}
                         onChange={(e) => handleInputChange("streetAddress", e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                         placeholder="e.g. 42 Dockyard Road"
                       />
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">City</label>
-                        <input 
+                        <input
                           type="text"
                           value={profile.city}
                           onChange={(e) => handleInputChange("city", e.target.value)}
-                          className="px-3 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="px-3 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. Trincomalee"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">District</label>
-                        <input 
+                        <input
                           type="text"
                           value={profile.district}
                           onChange={(e) => handleInputChange("district", e.target.value)}
-                          className="px-3 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="px-3 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="District"
                         />
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Postal Code</label>
-                        <input 
-                          type="text"
-                          value={profile.postalCode}
-                          onChange={(e) => handleInputChange("postalCode", e.target.value)}
-                          className="px-3 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
-                          placeholder="31000"
-                        />
-                      </div>
+
                     </div>
                   </div>
 
@@ -887,21 +901,21 @@ export function RestaurantProfile() {
                     <div className="flex-1 grid grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Latitude Coordinate</label>
-                        <input 
+                        <input
                           type="text"
                           value={profile.lat}
                           onChange={(e) => handleInputChange("lat", e.target.value)}
-                          className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. 8.5714"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Longitude Coordinate</label>
-                        <input 
+                        <input
                           type="text"
                           value={profile.lng}
                           onChange={(e) => handleInputChange("lng", e.target.value)}
-                          className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. 81.2335"
                         />
                       </div>
@@ -922,7 +936,7 @@ export function RestaurantProfile() {
                     {/* Glowing background representing radar map */}
                     <div className="absolute inset-0 bg-radial-gradient from-zinc-800 via-zinc-900 to-black opacity-90" />
                     <div className="absolute inset-0 opacity-10 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:20px_20px]" />
-                    
+
                     {/* Radar pulsing effect around coordinates */}
                     <div className="relative z-10 flex flex-col items-center">
                       <div className="relative flex h-10 w-10 items-center justify-center">
@@ -946,7 +960,7 @@ export function RestaurantProfile() {
                         {profile.deliveryRadius} Kilometers (km)
                       </span>
                     </div>
-                    <input 
+                    <input
                       type="range"
                       min="1"
                       max="25"
@@ -976,11 +990,11 @@ export function RestaurantProfile() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Average Preparation & Delivery Time</label>
-                      <input 
+                      <input
                         type="text"
                         value={profile.estimatedDeliveryTime}
                         onChange={(e) => handleInputChange("estimatedDeliveryTime", e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                        className="px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                         placeholder="e.g. 25-35 min"
                       />
                     </div>
@@ -988,11 +1002,11 @@ export function RestaurantProfile() {
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Base Delivery Fee (LKR)</label>
                       <div className="relative">
                         <span className="absolute left-3.5 top-3 text-xs font-extrabold text-zinc-400">LKR</span>
-                        <input 
+                        <input
                           type="number"
                           value={profile.deliveryFee}
                           onChange={(e) => handleInputChange("deliveryFee", parseFloat(e.target.value) || 0)}
-                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. 150"
                         />
                       </div>
@@ -1004,11 +1018,11 @@ export function RestaurantProfile() {
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Minimum Order Value (LKR)</label>
                       <div className="relative">
                         <span className="absolute left-3.5 top-3 text-xs font-extrabold text-zinc-400">LKR</span>
-                        <input 
+                        <input
                           type="number"
                           value={profile.minOrder}
                           onChange={(e) => handleInputChange("minOrder", parseFloat(e.target.value) || 0)}
-                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. 500"
                         />
                       </div>
@@ -1017,57 +1031,18 @@ export function RestaurantProfile() {
                       <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Free Delivery Threshold (LKR)</label>
                       <div className="relative">
                         <span className="absolute left-3.5 top-3 text-xs font-extrabold text-zinc-400">LKR</span>
-                        <input 
+                        <input
                           type="number"
                           value={profile.freeDeliveryThreshold}
                           onChange={(e) => handleInputChange("freeDeliveryThreshold", parseFloat(e.target.value) || 0)}
-                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. 2500"
                         />
                       </div>
                     </div>
                   </div>
 
-                  {/* Interactive Delivery Fee Calculator Simulation */}
-                  <div className="bg-brand-cream/10 dark:bg-zinc-900/40 border border-brand-cream/30 dark:border-zinc-700/50 rounded-2xl p-5 mt-3 flex flex-col gap-4">
-                    <div>
-                      <h3 className="text-sm font-extrabold text-brand-brown dark:text-brand-orange flex items-center gap-1.5">
-                        <Compass className="h-4.5 w-4.5" />
-                        Interactive Fee Calculator Simulator
-                      </h3>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">Test how much delivery fee customers will see based on their map distance.</p>
-                    </div>
 
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <div className="flex-1 w-full flex flex-col gap-1">
-                        <div className="flex justify-between text-xs text-zinc-600 dark:text-zinc-400 font-bold">
-                          <span>Simulated Distance</span>
-                          <span>{calcDistance} km</span>
-                        </div>
-                        <input 
-                          type="range"
-                          min="1"
-                          max="20"
-                          step="0.5"
-                          value={calcDistance}
-                          onChange={(e) => setCalcDistance(parseFloat(e.target.value))}
-                          className="w-full h-1.5 rounded-lg bg-zinc-200 dark:bg-zinc-700 cursor-pointer accent-brand-burnt"
-                        />
-                      </div>
-                      
-                      {/* Sim result badge */}
-                      <div className="w-full sm:w-44 h-16 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/60 p-3 flex flex-col justify-center items-center">
-                        <span className="text-[9px] uppercase tracking-wider text-zinc-400 font-extrabold">Estimated Cost</span>
-                        <span className={`text-base font-extrabold ${simulatedFee === -1 ? 'text-red-500' : 'text-emerald-500'}`}>
-                          {simulatedFee === -1 
-                            ? "Out of Radius" 
-                            : simulatedFee === 0 
-                              ? "Free Delivery" 
-                              : `LKR ${simulatedFee}`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1091,11 +1066,10 @@ export function RestaurantProfile() {
 
                   {/* Holiday / Closed Mode options */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-zinc-200/80 dark:border-zinc-700/50 pb-5">
-                    <label className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
-                      profile.holidayMode 
-                        ? 'border-amber-500 bg-amber-500/5' 
-                        : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50/50'
-                    }`}>
+                    <label className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${profile.holidayMode
+                      ? 'border-amber-500 bg-amber-500/5'
+                      : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50/50'
+                      }`}>
                       <div>
                         <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                           <span className={`h-2 w-2 rounded-full bg-amber-500 ${profile.holidayMode ? 'animate-pulse' : ''}`} />
@@ -1103,19 +1077,18 @@ export function RestaurantProfile() {
                         </div>
                         <p className="text-[10px] text-zinc-400 mt-0.5">Toggle when closed for national/local holidays</p>
                       </div>
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={profile.holidayMode}
                         onChange={(e) => handleInputChange("holidayMode", e.target.checked)}
                         className="h-4.5 w-4.5 rounded border-zinc-300 text-amber-500 focus:ring-amber-500 accent-amber-500"
                       />
                     </label>
 
-                    <label className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
-                      profile.temporaryClosure 
-                        ? 'border-red-500 bg-red-500/5' 
-                        : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50/50'
-                    }`}>
+                    <label className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${profile.temporaryClosure
+                      ? 'border-red-500 bg-red-500/5'
+                      : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50/50'
+                      }`}>
                       <div>
                         <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                           <span className={`h-2 w-2 rounded-full bg-red-500 ${profile.temporaryClosure ? 'animate-pulse' : ''}`} />
@@ -1123,8 +1096,8 @@ export function RestaurantProfile() {
                         </div>
                         <p className="text-[10px] text-zinc-400 mt-0.5">Close instantly for emergency maintenance/kitchen reset</p>
                       </div>
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={profile.temporaryClosure}
                         onChange={(e) => handleInputChange("temporaryClosure", e.target.checked)}
                         className="h-4.5 w-4.5 rounded border-zinc-300 text-red-500 focus:ring-red-500 accent-red-500"
@@ -1135,19 +1108,18 @@ export function RestaurantProfile() {
                   {/* Weekly Day rows */}
                   <div className="flex flex-col gap-3">
                     {Object.entries(profile.weeklyHours).map(([day, hrs]) => (
-                      <div 
+                      <div
                         key={day}
-                        className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-3.5 rounded-xl border transition-colors ${
-                          hrs.open 
-                            ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/40' 
-                            : 'border-zinc-150 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-70'
-                        }`}
+                        className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-3.5 rounded-xl border transition-colors ${hrs.open
+                          ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/40'
+                          : 'border-zinc-150 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-70'
+                          }`}
                       >
                         {/* Day & Open Status Toggle */}
                         <div className="flex items-center justify-between sm:justify-start gap-4">
                           <span className="text-xs font-extrabold w-24 text-zinc-700 dark:text-zinc-300">{day}</span>
                           <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                            <input 
+                            <input
                               type="checkbox"
                               checked={hrs.open}
                               onChange={(e) => handleDayHourChange(day, "open", e.target.checked)}
@@ -1162,17 +1134,17 @@ export function RestaurantProfile() {
                         {/* Hours inputs if open */}
                         {hrs.open ? (
                           <div className="flex items-center gap-2 mt-3.5 sm:mt-0">
-                            <input 
-                              type="text" 
-                              value={hrs.from} 
+                            <input
+                              type="text"
+                              value={hrs.from}
                               onChange={(e) => handleDayHourChange(day, "from", e.target.value)}
                               className="w-24 text-center px-2.5 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
                               placeholder="08:00 AM"
                             />
                             <span className="text-xs font-bold text-zinc-400">to</span>
-                            <input 
-                              type="text" 
-                              value={hrs.to} 
+                            <input
+                              type="text"
+                              value={hrs.to}
                               onChange={(e) => handleDayHourChange(day, "to", e.target.value)}
                               className="w-24 text-center px-2.5 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
                               placeholder="10:00 PM"
@@ -1204,11 +1176,11 @@ export function RestaurantProfile() {
                         Official Web Domain
                       </label>
                       <div className="relative">
-                        <input 
+                        <input
                           type="text"
                           value={profile.website}
                           onChange={(e) => handleInputChange("website", e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. https://trincospicehouse.com"
                         />
                         {profile.website.startsWith("https://") && (
@@ -1224,11 +1196,11 @@ export function RestaurantProfile() {
                         Facebook Page URL
                       </label>
                       <div className="relative">
-                        <input 
+                        <input
                           type="text"
                           value={profile.facebook}
                           onChange={(e) => handleInputChange("facebook", e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. https://facebook.com/brand"
                         />
                         {profile.facebook.startsWith("https://") && (
@@ -1244,11 +1216,11 @@ export function RestaurantProfile() {
                         Instagram Handle URL
                       </label>
                       <div className="relative">
-                        <input 
+                        <input
                           type="text"
                           value={profile.instagram}
                           onChange={(e) => handleInputChange("instagram", e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. https://instagram.com/brand"
                         />
                         {profile.instagram.startsWith("https://") && (
@@ -1264,11 +1236,11 @@ export function RestaurantProfile() {
                         YouTube channel URL
                       </label>
                       <div className="relative">
-                        <input 
+                        <input
                           type="text"
                           value={profile.youtube}
                           onChange={(e) => handleInputChange("youtube", e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. https://youtube.com/channel"
                         />
                         {profile.youtube.startsWith("https://") && (
@@ -1284,11 +1256,11 @@ export function RestaurantProfile() {
                         TikTok Channel URL
                       </label>
                       <div className="relative">
-                        <input 
+                        <input
                           type="text"
                           value={profile.tiktok}
                           onChange={(e) => handleInputChange("tiktok", e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm text-zinc-800 dark:text-zinc-200"
+                          className="w-full px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/40 focus:outline-none focus:ring-2 focus:ring-brand-burnt dark:focus:ring-brand-orange text-sm font-bold text-zinc-800 dark:text-zinc-200"
                           placeholder="e.g. https://tiktok.com/@handle"
                         />
                         {profile.tiktok.startsWith("https://") && (
@@ -1319,8 +1291,8 @@ export function RestaurantProfile() {
                         <p className="text-xs text-zinc-400 mt-1">If disabled, the kitchen will immediately show as "Busy" and refuse checkouts.</p>
                       </div>
                       <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={profile.acceptOrders}
                           onChange={(e) => handleInputChange("acceptOrders", e.target.checked)}
                           className="sr-only peer"
@@ -1340,8 +1312,8 @@ export function RestaurantProfile() {
                         <p className="text-xs text-zinc-400 mt-1">Unpublish to hide your store from browse/search indexing (useful for massive resets).</p>
                       </div>
                       <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={profile.showPublicly}
                           onChange={(e) => handleInputChange("showPublicly", e.target.checked)}
                           className="sr-only peer"
@@ -1361,8 +1333,8 @@ export function RestaurantProfile() {
                         <p className="text-xs text-zinc-400 mt-1">Locks checkout indefinitely and displays customized holiday message.</p>
                       </div>
                       <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={profile.vacationMode}
                           onChange={(e) => handleInputChange("vacationMode", e.target.checked)}
                           className="sr-only peer"
@@ -1372,26 +1344,7 @@ export function RestaurantProfile() {
                       </div>
                     </label>
 
-                    {/* Auto Accept Orders */}
-                    <label className="flex items-center justify-between p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-700/60 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
-                      <div className="flex-1 pr-4">
-                        <div className="text-sm font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
-                          <Settings className="h-4.5 w-4.5 text-zinc-500" />
-                          Auto-Accept Instant Placed Orders
-                        </div>
-                        <p className="text-xs text-zinc-400 mt-1">Instantly bypass manually approving orders, forwarding tickets straight to kitchen terminal.</p>
-                      </div>
-                      <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
-                          checked={profile.autoAcceptOrders}
-                          onChange={(e) => handleInputChange("autoAcceptOrders", e.target.checked)}
-                          className="sr-only peer"
-                          id="toggle-auto-accept"
-                        />
-                        <div className="w-11 h-6 bg-zinc-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-burnt" />
-                      </div>
-                    </label>
+
 
                     {/* Cash on Delivery */}
                     <label className="flex items-center justify-between p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-700/60 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
@@ -1403,8 +1356,8 @@ export function RestaurantProfile() {
                         <p className="text-xs text-zinc-400 mt-1">Accept cash at doorstep. If disabled, only card payments are supported.</p>
                       </div>
                       <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={profile.cashOnDelivery}
                           onChange={(e) => handleInputChange("cashOnDelivery", e.target.checked)}
                           className="sr-only peer"
@@ -1414,26 +1367,7 @@ export function RestaurantProfile() {
                       </div>
                     </label>
 
-                    {/* Featured Placement */}
-                    <label className="flex items-center justify-between p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-700/60 bg-zinc-50/30 dark:bg-zinc-900/10 cursor-pointer">
-                      <div className="flex-1 pr-4">
-                        <div className="text-sm font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
-                          <Sparkles className="h-4.5 w-4.5 text-purple-500" />
-                          Featured Sponsor Boost (Pro Admin Only)
-                        </div>
-                        <p className="text-xs text-zinc-400 mt-1">Pin your kitchen to the top of the search catalog banner list.</p>
-                      </div>
-                      <div className="relative inline-flex items-center">
-                        <input 
-                          type="checkbox" 
-                          checked={profile.featuredRestaurant}
-                          onChange={(e) => handleInputChange("featuredRestaurant", e.target.checked)}
-                          className="sr-only peer"
-                          id="toggle-featured"
-                        />
-                        <div className="w-11 h-6 bg-zinc-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600" />
-                      </div>
-                    </label>
+
                   </div>
                 </div>
               )}
@@ -1449,12 +1383,13 @@ export function RestaurantProfile() {
               <span className="text-xs font-black uppercase tracking-wider text-brand-orange">Customer App View</span>
               <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full font-bold">Real-time Preview</span>
             </div>
-            
-            <RestaurantMockAppCard 
+
+            <RestaurantMockAppCard
               profile={profile}
               logoImage={logoImage}
               coverImage={coverImage}
               currentStatus={currentStatus}
+              restaurantId={activeRestaurant.id}
             />
           </div>
         </div>
@@ -1486,11 +1421,12 @@ export function RestaurantProfile() {
                 </button>
               </div>
               <div className="p-4 overflow-y-auto max-h-[80vh]">
-                <RestaurantMockAppCard 
+                <RestaurantMockAppCard
                   profile={profile}
                   logoImage={logoImage}
                   coverImage={coverImage}
                   currentStatus={currentStatus}
+                  restaurantId={activeRestaurant.id}
                 />
               </div>
             </motion.div>
@@ -1507,9 +1443,10 @@ interface RestaurantMockAppCardProps {
   logoImage: string;
   coverImage: string;
   currentStatus: { label: string; color: string; text: string; desc: string };
+  restaurantId: string;
 }
 
-function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus }: RestaurantMockAppCardProps) {
+function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus, restaurantId }: RestaurantMockAppCardProps) {
   return (
     <div className="flex flex-col select-none">
       {/* Cover image landscape */}
@@ -1523,7 +1460,7 @@ function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus }
         )}
         {/* Overlay gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
-        
+
         {/* Floating status flag on cover */}
         <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/10 text-[9px] font-bold text-white shadow-sm">
           <span className={`h-1.5 w-1.5 rounded-full ${currentStatus.color} animate-pulse`} />
@@ -1567,11 +1504,11 @@ function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus }
         <div className="flex items-center justify-between text-xs border-b border-zinc-200/80 dark:border-zinc-800/80 pb-2.5">
           <div className="flex items-center gap-1 text-zinc-800 dark:text-zinc-200 font-bold">
             <span className="text-amber-500 text-sm">★</span>
-            <span>4.8</span>
-            <span className="text-zinc-400 text-[10px] font-normal">(184 reviews)</span>
+            <span>{profile.rating.toFixed(1)}</span>
+            <span className="text-zinc-400 text-[10px] font-normal">({profile.reviewsCount} reviews)</span>
           </div>
           <div className="text-[10px] font-bold text-zinc-400">
-            {profile.priceRange} • {profile.cuisineTypes.slice(0, 3).join(", ") || "No cuisines configured"}
+            {profile.cuisineTypes.slice(0, 3).join(", ") || "No cuisines configured"}
           </div>
         </div>
 
@@ -1594,9 +1531,9 @@ function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus }
           <div className="flex flex-col gap-0.5 border-l border-r border-zinc-200/80 dark:border-zinc-800/80">
             <span className="text-[8px] font-extrabold uppercase text-zinc-400 tracking-wider">Delivery Fee</span>
             <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-              {profile.delivery 
-                ? profile.deliveryFee === 0 
-                  ? "Free" 
+              {profile.delivery
+                ? profile.deliveryFee === 0
+                  ? "Free"
                   : `LKR ${profile.deliveryFee}`
                 : "Unavailable"}
             </span>
@@ -1626,34 +1563,86 @@ function RestaurantMockAppCard({ profile, logoImage, coverImage, currentStatus }
           <span>{profile.openingTime} - {profile.closingTime}</span>
         </div>
 
-        {/* Quick redirect links (Website, Facebook, Instagram) */}
-        {(profile.website || profile.facebook || profile.instagram) && (
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[8px] font-extrabold text-zinc-400 uppercase tracking-wider">Official Handles:</span>
+        {/* Quick redirect links — all configured social platforms */}
+        {(profile.website || profile.facebook || profile.instagram || profile.youtube || profile.tiktok) && (
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-[8px] font-extrabold text-zinc-400 uppercase tracking-wider">Follow Us:</span>
             <div className="flex items-center gap-1.5">
               {profile.website && (
-                <a href={profile.website} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-blue-500"><Globe className="h-3.5 w-3.5" /></a>
+                <a
+                  href={profile.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Official Website"
+                  className="h-6 w-6 rounded-full bg-blue-500/10 hover:bg-blue-500/20 flex items-center justify-center text-blue-500 transition-colors cursor-pointer"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                </a>
               )}
               {profile.facebook && (
-                <a href={profile.facebook} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-blue-600"><Facebook className="h-3.5 w-3.5" /></a>
+                <a
+                  href={profile.facebook}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Facebook Page"
+                  className="h-6 w-6 rounded-full bg-blue-600/10 hover:bg-blue-600/20 flex items-center justify-center text-blue-600 transition-colors cursor-pointer"
+                >
+                  <Facebook className="h-3.5 w-3.5" />
+                </a>
               )}
               {profile.instagram && (
-                <a href={profile.instagram} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-pink-500"><Instagram className="h-3.5 w-3.5" /></a>
+                <a
+                  href={profile.instagram}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Instagram"
+                  className="h-6 w-6 rounded-full bg-pink-500/10 hover:bg-pink-500/20 flex items-center justify-center text-pink-500 transition-colors cursor-pointer"
+                >
+                  <Instagram className="h-3.5 w-3.5" />
+                </a>
+              )}
+              {profile.youtube && (
+                <a
+                  href={profile.youtube}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="YouTube Channel"
+                  className="h-6 w-6 rounded-full bg-red-600/10 hover:bg-red-600/20 flex items-center justify-center text-red-600 transition-colors cursor-pointer"
+                >
+                  <Youtube className="h-3.5 w-3.5" />
+                </a>
+              )}
+              {profile.tiktok && (
+                <a
+                  href={profile.tiktok}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="TikTok"
+                  className="h-6 w-6 rounded-full bg-zinc-800/10 hover:bg-zinc-800/20 dark:bg-zinc-200/10 dark:hover:bg-zinc-200/20 flex items-center justify-center text-zinc-700 dark:text-zinc-200 transition-colors cursor-pointer"
+                >
+                  <Compass className="h-3.5 w-3.5" />
+                </a>
               )}
             </div>
           </div>
         )}
 
         {/* Interactive customer order CTA button */}
-        <button
-          type="button"
-          disabled={!profile.acceptOrders || profile.temporaryClosure || profile.holidayMode}
-          className="w-full bg-brand-burnt hover:bg-brand-burnt/95 dark:bg-brand-orange text-white dark:text-brand-brown py-2.5 rounded-xl text-xs font-extrabold transition-all mt-2 disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 border-none cursor-pointer"
+        <Link
+          to="/restaurant/$id"
+          params={{ id: restaurantId }}
+          className={`w-full block ${(!profile.acceptOrders || profile.temporaryClosure || profile.holidayMode) ? "pointer-events-none" : ""}`}
         >
-          {!profile.acceptOrders || profile.temporaryClosure || profile.holidayMode 
-            ? "Kitchen Closed for Ordering" 
-            : "Browse Our Culinary Menu"}
-        </button>
+          <button
+            type="button"
+            disabled={!profile.acceptOrders || profile.temporaryClosure || profile.holidayMode}
+            className="w-full bg-brand-burnt hover:bg-brand-burnt/95 dark:bg-brand-orange text-white dark:text-brand-brown py-2.5 rounded-xl text-xs font-extrabold transition-all mt-2 disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 border-none cursor-pointer"
+          >
+            {!profile.acceptOrders || profile.temporaryClosure || profile.holidayMode
+              ? "Kitchen Closed for Ordering"
+              : "Browse Our Culinary Menu"}
+          </button>
+        </Link>
       </div>
     </div>
   );

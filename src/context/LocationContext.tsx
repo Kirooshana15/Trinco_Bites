@@ -19,6 +19,8 @@ export type SavedAddress = LocationOption & {
   kind: "home" | "work" | "custom" | "other";
   firstName?: string;
   lastName?: string;
+  fullName?: string;
+  email?: string;
   country?: string;
   province?: string;
   city?: string;
@@ -55,66 +57,9 @@ const defaultLocation: LocationOption = {
 };
 
 const defaultSavedAddresses: SavedAddress[] = [
-  {
-    id: "saved-trinco-1",
-    kind: "home",
-    label: "Nimal Perera",
-    firstName: "Nimal",
-    lastName: "Perera",
-    phoneNumber: "077 234 5678",
-    streetAddress: "No. 45, Dockyard Road",
-    city: "Trincomalee",
-    district: "Trincomalee",
-    province: "Eastern",
-    country: "Sri Lanka",
-    address: "No. 45, Dockyard Road, Trincomalee, Trincomalee, Trincomalee, Eastern, Sri Lanka",
-    isDefault: true,
-  },
-  {
-    id: "saved-trinco-2",
-    kind: "work",
-    label: "Kasun Fernando",
-    firstName: "Kasun",
-    lastName: "Fernando",
-    phoneNumber: "071 456 7890",
-    streetAddress: "No. 12, Main Street",
-    city: "Trincomalee",
-    district: "Trincomalee",
-    province: "Eastern",
-    country: "Sri Lanka",
-    address: "No. 12, Main Street, Trincomalee, Trincomalee, Trincomalee, Eastern, Sri Lanka",
-    isDefault: false,
-  },
-  {
-    id: "saved-trinco-3",
-    kind: "other",
-    label: "Tharushi Silva",
-    firstName: "Tharushi",
-    lastName: "Silva",
-    phoneNumber: "075 987 6543",
-    streetAddress: "No. 88, Kandy Road",
-    city: "China Bay",
-    district: "Trincomalee",
-    province: "Eastern",
-    country: "Sri Lanka",
-    address: "No. 88, Kandy Road, China Bay, Trincomalee, Eastern, Sri Lanka",
-    isDefault: false,
-  },
-  {
-    id: "saved-trinco-4",
-    kind: "home",
-    label: "Sajith Kumar",
-    firstName: "Sajith",
-    lastName: "Kumar",
-    phoneNumber: "076 321 4587",
-    streetAddress: "No. 27, Nilaveli Road",
-    city: "Nilaveli",
-    district: "Trincomalee",
-    province: "Eastern",
-    country: "Sri Lanka",
-    address: "No. 27, Nilaveli Road, Nilaveli, Trincomalee, Eastern, Sri Lanka",
-    isDefault: false,
-  },
+
+
+
 ];
 
 const defaultRecentLocations: LocationOption[] = [

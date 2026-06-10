@@ -4,10 +4,13 @@ import type { CartItem } from "@/context/CartContext";
 export type OrderRecord = {
   id: string;
   createdAt: string;
-  status: "Order Received" | "Out for Delivery" | "Delivered";
+  status: "Order Received" | "Preparing" | "Out for Delivery" | "Delivered" | "Cancelled";
+  restaurantId: string;
   restaurantName: string;
   items: CartItem[];
+  orderType: "Delivery" | "Self Pickup";
   subtotal: number;
+  tax: number;
   deliveryFee: number;
   total: number;
   paymentMethod: "cash" | "card";
@@ -18,12 +21,16 @@ export type OrderRecord = {
   };
   deliveryAddress: string;
   locationLabel: string;
+  notes?: string; // Customer's special instructions
+  cancellationReason?: string; // Why restaurant rejected the order
+  refundInitiated?: boolean;   // true for card payments that were refunded
 };
 
 type OrderContextType = {
   orders: OrderRecord[];
   latestOrder: OrderRecord | null;
   placeOrder: (order: Omit<OrderRecord, "id" | "createdAt" | "status">) => OrderRecord;
+  updateOrderStatus: (orderId: string, status: OrderRecord["status"]) => void;
 };
 
 const STORAGE_KEY = "trinco_orders";
@@ -42,6 +49,16 @@ export function OrderProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(STORAGE_KEY);
       }
     }
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          setOrders(JSON.parse(e.newValue));
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   const placeOrder: OrderContextType["placeOrder"] = (order) => {
@@ -61,10 +78,44 @@ export function OrderProvider({ children }: { children: ReactNode }) {
     return next;
   };
 
+  const updateOrderStatus = (orderId: string, status: OrderRecord["status"]) => {
+    setOrders((prev) => {
+      const order = prev.find((o) => o.id === orderId);
+      if (!order) return prev;
+
+      // Strict transition validation
+      const current = order.status;
+      if (current === "Delivered" || current === "Cancelled") {
+        return prev; // Terminal states cannot transition
+      }
+
+      // Validating transitions:
+      // Order Received -> Preparing or Cancelled
+      // Preparing -> Delivered or Cancelled (restaurant Done = food ready, no separate delivery man)
+      // Out for Delivery -> Delivered or Cancelled (legacy path, kept for compatibility)
+      let valid = false;
+      if (current === "Order Received" && (status === "Preparing" || status === "Cancelled")) {
+        valid = true;
+      } else if (current === "Preparing" && (status === "Delivered" || status === "Out for Delivery" || status === "Cancelled")) {
+        valid = true;
+      } else if (current === "Out for Delivery" && (status === "Delivered" || status === "Cancelled")) {
+        valid = true;
+      } else if (status === "Cancelled") {
+        valid = true;
+      }
+
+      if (!valid) return prev; // Ignore invalid transitions
+
+      const updated = prev.map((o) => (o.id === orderId ? { ...o, status } : o));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const latestOrder = useMemo(() => orders[0] ?? null, [orders]);
 
   return (
-    <OrderContext.Provider value={{ orders, latestOrder, placeOrder }}>
+    <OrderContext.Provider value={{ orders, latestOrder, placeOrder, updateOrderStatus }}>
       {children}
     </OrderContext.Provider>
   );

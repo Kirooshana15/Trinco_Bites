@@ -6,8 +6,11 @@ import {
   Users, Star, Ticket, TrendingUp, Truck, Wallet, 
   User, Settings, Gift
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useRestaurants } from "@/context/RestaurantContext";
+import { useOrders } from "@/context/OrderContext";
+import { buildRestaurantAlerts } from "@/utils/restaurantNotifications";
 import { C } from "@/utils/theme";
 import logo from "@/assets/logo.png";
 
@@ -44,6 +47,9 @@ export function RestaurantAdminLayout() {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const { user, isAuthenticated, logout } = useAuth();
+  const { findRestaurant, offers } = useRestaurants();
+  const { orders } = useOrders();
+  const currentRestaurant = user?.restaurantId ? findRestaurant(user.restaurantId) : undefined;
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -52,40 +58,27 @@ export function RestaurantAdminLayout() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(true);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: "New order received",
-      message: "Order #TB-8942 placed by Nithya R. (LKR 1,500)",
-      timestamp: "10m ago",
-      type: "order",
-      isUnread: true,
-    },
-    {
-      id: 2,
-      title: "Coupon expiring soon",
-      message: "Promo code 'WEEKEND30' expires in 4 hours",
-      timestamp: "2h ago",
-      type: "coupon",
-      isUnread: true,
-    },
-    {
-      id: 3,
-      title: "New customer review added",
-      message: "Daniel J. rated 5 stars: 'Best Chicken Kottu!'",
-      timestamp: "3h ago",
-      type: "review",
-      isUnread: false,
-    },
-    {
-      id: 4,
-      title: "Payment successfully received",
-      message: "Settlement of LKR 48,250 deposited to wallet",
-      timestamp: "Today",
-      type: "payment",
-      isUnread: false,
-    },
-  ]);
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+
+  const notifications = useMemo(
+    () =>
+      buildRestaurantAlerts({
+        orders,
+        offers,
+        restaurantId: currentRestaurant?.id,
+      })
+        .slice(0, 8)
+        .map((alert) => ({
+          id: alert.id,
+          title: alert.title,
+          message: alert.description,
+          timestamp: alert.time,
+          type: alert.type === "offers" ? "coupon" : alert.type === "payments" ? "payment" : "order",
+          isUnread: !alert.read && !readNotificationIds.includes(alert.id),
+          orderId: alert.orderId,
+        })),
+    [orders, offers, currentRestaurant?.id, readNotificationIds]
+  );
 
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     if (e.currentTarget.scrollTop > 5) {
@@ -96,11 +89,21 @@ export function RestaurantAdminLayout() {
   };
 
   const handleMarkAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isUnread: false })));
+    setReadNotificationIds(notifications.map((notification) => notification.id));
   };
 
-  const handleToggleRead = (id: number) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isUnread: !n.isUnread } : n));
+  const handleNotificationClick = (notification: { id: string; orderId?: string }) => {
+    setReadNotificationIds((prev) =>
+      prev.includes(notification.id) ? prev : [...prev, notification.id]
+    );
+    setIsNotificationOpen(false);
+
+    if (notification.orderId) {
+      navigate({
+        to: "/restaurant/orders",
+        search: { orderId: notification.orderId } as any,
+      });
+    }
   };
 
   const unreadCount = notifications.filter(n => n.isUnread).length;
@@ -176,11 +179,15 @@ export function RestaurantAdminLayout() {
   const SidebarContent = ({ isMobile = false }) => (
     <div className="flex flex-col h-full py-6 select-none">
       {/* Brand Header */}
-      <div className={`mb-8 flex items-center transition-all duration-300 ${
-        isSidebarCollapsed && !isMobile 
-          ? 'px-2 justify-center' 
-          : 'px-6 justify-between'
-      }`}>
+      <div 
+        onClick={() => !isMobile && setIsSidebarCollapsed(!isSidebarCollapsed)}
+        title={!isMobile ? (isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar") : undefined}
+        className={`mb-8 flex items-center transition-all duration-300 ${!isMobile ? "cursor-pointer hover:opacity-85" : ""} ${
+          isSidebarCollapsed && !isMobile 
+            ? 'px-2 justify-center' 
+            : 'px-6 justify-between'
+        }`}
+      >
         <div className="flex items-center gap-3">
           <img 
             src={logo} 
@@ -304,8 +311,16 @@ export function RestaurantAdminLayout() {
         {(!isSidebarCollapsed || isMobile) ? (
           <div className="bg-[#FFFCF5]/40 backdrop-blur-sm rounded-2xl p-3 flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-[#71A066] text-white flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
-                {user?.name?.charAt(0).toUpperCase() || "A"}
+              <div className="h-9 w-9 rounded-full bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-sm shadow-sm shrink-0 overflow-hidden border border-[#71A066]/20">
+                {currentRestaurant?.image ? (
+                  <img
+                    src={currentRestaurant.image}
+                    alt={`${currentRestaurant.name} logo`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  user?.name?.charAt(0).toUpperCase() || "A"
+                )}
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="font-extrabold text-xs text-[#4E3E2A] truncate">{user?.name || "Restaurant Hub"}</span>
@@ -315,25 +330,33 @@ export function RestaurantAdminLayout() {
             
             <button 
               onClick={handleLogout}
-              className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#4E3E2A]/10 hover:bg-[#4E3E2A]/20 text-[#4E3E2A] font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200"
+              className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#EF4444]/10 hover:bg-[#DC2626] text-[#B91C1C] hover:text-white border border-[#EF4444]/25 hover:border-[#DC2626] font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626]"
             >
               <LogOut size={13} /> Log Out
             </button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4 w-full">
-            <div className="h-10 w-10 rounded-2xl bg-[#71A066] text-white flex items-center justify-center font-bold text-sm shadow-sm transition-all duration-200 hover:scale-105">
-              {user?.name?.charAt(0).toUpperCase() || "A"}
+            <div className="h-10 w-10 rounded-full bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-sm shadow-sm transition-all duration-200 hover:scale-105 overflow-hidden border border-[#71A066]/20">
+              {currentRestaurant?.image ? (
+                <img
+                  src={currentRestaurant.image}
+                  alt={`${currentRestaurant.name} logo`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                user?.name?.charAt(0).toUpperCase() || "A"
+              )}
             </div>
             
             <button 
               onClick={handleLogout}
-              className="group flex flex-col items-center justify-center w-full py-1 relative cursor-pointer bg-transparent border-none"
+              className="group flex flex-col items-center justify-center w-full py-1 relative cursor-pointer bg-transparent border-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626] rounded-xl"
             >
-              <div className="w-11 h-11 rounded-2xl bg-red-500/10 text-red-500 flex items-center justify-center transition-all duration-200 group-hover:bg-red-500 group-hover:text-white group-hover:scale-105 shadow-sm">
+              <div className="w-11 h-11 rounded-2xl bg-[#EF4444]/10 text-[#B91C1C] border border-[#EF4444]/25 flex items-center justify-center transition-all duration-200 group-hover:bg-[#DC2626] group-hover:text-white group-hover:border-[#DC2626] group-hover:scale-105 shadow-sm">
                 <LogOut size={18} />
               </div>
-              <span className="text-[9px] font-extrabold mt-1 text-red-500 tracking-tight">
+              <span className="text-[9px] font-extrabold mt-1 text-[#B91C1C] tracking-tight">
                 Logout
               </span>
             </button>
@@ -398,13 +421,7 @@ export function RestaurantAdminLayout() {
               <Menu size={20} />
             </button>
             
-            {/* Desktop Collapse Sidebar Toggle */}
-            <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="hidden md:flex p-2 rounded-xl text-[#4E3E2A]/80 hover:bg-[#4E3E2A]/10 transition-colors"
-            >
-              <Menu size={18} />
-            </button>
+
  
             {/* Path Header info */}
             <div className="flex items-center gap-1.5 text-xs font-semibold text-[#4E3E2A]/50">
@@ -508,7 +525,7 @@ export function RestaurantAdminLayout() {
                           notifications.map((notif) => (
                             <div 
                               key={notif.id}
-                              onClick={() => handleToggleRead(notif.id)}
+                              onClick={() => handleNotificationClick(notif)}
                               className={`p-3.5 flex gap-3 text-left hover:bg-[#FFFCF5] transition-colors cursor-pointer relative group ${
                                 notif.isUnread ? "bg-[#71A066]/3" : ""
                               }`}

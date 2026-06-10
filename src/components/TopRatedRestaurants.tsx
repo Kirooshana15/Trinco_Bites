@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type Restaurant } from "@/utils/data/mock";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { useRef } from "react";
+import { isRestaurantOpen } from "@/utils/time";
 
 import { C } from "@/utils/theme";
 
@@ -25,7 +26,6 @@ function getBadge(r: Restaurant): { label: string; color: string; bg: string } |
 function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
   const navigate  = useNavigate();
   const badge     = getBadge(r);
-  const ratingClr = getRatingColor(r.rating);
 
   return (
     <motion.div
@@ -38,22 +38,23 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
       onClick={() => navigate({ to: "/restaurant/$id", params: { id: r.id } })}
     >
       <div
-        className="rounded-[20px] overflow-hidden"
+        className="rounded-[20px] overflow-hidden bg-white text-left"
         style={{
-          boxShadow: "0 4px 24px rgba(129,52,5,0.12), 0 1px 4px rgba(129,52,5,0.06)",
-          transition: "box-shadow 0.3s ease",
+          boxShadow: "0 4px 24px rgba(129,52,5,0.08), 0 1px 4px rgba(129,52,5,0.04)",
+          border: "1.5px solid rgba(249,160,63,0.15)",
+          transition: "all 0.3s ease",
         }}
         onMouseEnter={e => {
           (e.currentTarget as HTMLDivElement).style.boxShadow =
-            "0 14px 44px rgba(212,81,19,0.22), 0 4px 12px rgba(129,52,5,0.14)";
+            "0 14px 44px rgba(212,81,19,0.18), 0 4px 12px rgba(129,52,5,0.10)";
         }}
         onMouseLeave={e => {
           (e.currentTarget as HTMLDivElement).style.boxShadow =
-            "0 4px 24px rgba(129,52,5,0.12), 0 1px 4px rgba(129,52,5,0.06)";
+            "0 4px 24px rgba(129,52,5,0.08), 0 1px 4px rgba(129,52,5,0.04)";
         }}
       >
-        {/* Image with name overlay */}
-        <div className="relative overflow-hidden" style={{ height: 220 }}>
+        {/* Image Container */}
+        <div className="relative overflow-hidden" style={{ height: 160 }}>
           <motion.img
             src={r.image}
             alt={r.name}
@@ -68,21 +69,21 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
             className="absolute inset-0"
             style={{
               background:
-                "linear-gradient(to top, rgba(10,3,0,0.75) 0%, rgba(10,3,0,0.08) 55%, transparent 100%)",
+                "linear-gradient(to top, rgba(10,3,0,0.4) 0%, transparent 60%)",
             }}
           />
 
           {/* Rating badge – top left */}
           <div
-            className="absolute top-3 left-3 flex items-center gap-1 px-2 py-1 rounded-full"
+            className="absolute top-3 left-3 flex items-center gap-1 px-2.5 py-1 rounded-full"
             style={{
-              background: ratingClr.bg,
-              border: `1.5px solid ${ratingClr.border}`,
-              backdropFilter: "blur(10px)",
+              background: "rgba(255,255,255,0.92)",
+              backdropFilter: "blur(4px)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
             }}
           >
-            <Star size={10} style={{ color: ratingClr.text, fill: ratingClr.text }} />
-            <span className="text-[11px] font-black" style={{ color: ratingClr.text }}>
+            <Star size={11} className="fill-orange-500 text-orange-500" />
+            <span className="text-[11px] font-black text-slate-800">
               {r.rating.toFixed(1)}
             </span>
           </div>
@@ -90,21 +91,47 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
           {/* Trend / Top Rated badge – top right */}
           {badge && (
             <div
-              className="absolute top-3 right-3 px-2 py-1 rounded-full text-[10px] font-black"
+              className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm"
               style={{ background: badge.bg, color: badge.color }}
             >
               {badge.label}
             </div>
           )}
+        </div>
 
-          {/* Restaurant name – bottom overlay */}
-          <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
+        {/* Content Block */}
+        <div className="p-4 flex flex-col justify-between" style={{ minHeight: 130 }}>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-wider text-[#D45113] mb-1">
+              {r.category}
+            </div>
             <h3
-              className="font-black text-[1.05rem] leading-snug"
-              style={{ color: "#fff", textShadow: "0 1px 10px rgba(0,0,0,0.75)" }}
+              className="font-black text-[1.05rem] leading-snug truncate"
+              style={{ color: "#3B1700" }}
             >
               {r.name}
             </h3>
+            <p className="text-[11px] text-slate-400 font-semibold truncate mt-1">
+              📍 {r.location}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5 mt-3 pt-2.5 border-t border-[#F8DDA4]/20 text-[11px] font-bold text-[#813405]/75">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1">⏱️ {r.deliveryTime}</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-md font-black uppercase ${
+                  isRestaurantOpen(r)
+                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                    : "bg-red-50 text-red-650 border border-red-100"
+                }`}
+              >
+                {isRestaurantOpen(r) ? "Open" : "Closed"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-[10px] text-slate-400 font-semibold mt-0.5">
+              <span>🕒 {r.openingTime} - {r.closingTime}</span>
+            </div>
           </div>
         </div>
       </div>

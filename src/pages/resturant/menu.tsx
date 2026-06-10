@@ -7,7 +7,8 @@ import {
   Clock, DollarSign, ArrowUp, ArrowDown, HelpCircle, Utensils
 } from "lucide-react";
 import { toast } from "sonner";
-import { restaurants } from "@/utils/data/mock";
+import { useRestaurants } from "@/context/RestaurantContext";
+import { useAuth } from "@/context/AuthContext";
 
 // Define strict high-fidelity interfaces
 export interface MenuVariant {
@@ -38,7 +39,13 @@ export interface MenuItem {
 }
 
 export function MenuManagement() {
-  // Initialize mock items dynamically from Trinco Spice House menu data
+  const { user } = useAuth();
+  const { restaurants, updateRestaurantMenu } = useRestaurants();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
+
+  const [currentRestaurantId, setCurrentRestaurantId] = useState<string>("");
+
+  // Initialize mock items dynamically from the logged-in restaurant's menu data
   const [items, setItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -51,6 +58,7 @@ export function MenuManagement() {
   const [activeModalItem, setActiveModalItem] = useState<MenuItem | null>(null);
   const [isAddMode, setIsAddMode] = useState(false);
   const [activeViewItem, setActiveViewItem] = useState<MenuItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MenuItem | null>(null);
 
   // Form Fields State
   const [formName, setFormName] = useState("");
@@ -67,28 +75,63 @@ export function MenuManagement() {
 
 
 
-  // Pre-seed mock data on component load
+  // Helper to sync local items changes back to global context
+  const syncWithContext = (updatedItems: MenuItem[]) => {
+    if (!activeRestaurant) return;
+    const foodItems = updatedItems.map((item) => ({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      image: item.image,
+      description: item.description,
+      rating: item.rating,
+      popular: item.tags.includes("Bestseller"),
+      category: item.category,
+      // Extra fields for rich features / details
+      stock: item.stock,
+      isAvailable: item.isAvailable,
+      tags: item.tags,
+      variants: item.variants,
+      addons: item.addons,
+      timeAvailability: item.timeAvailability,
+      ordersCount: item.ordersCount,
+    }));
+    updateRestaurantMenu(activeRestaurant.id, foodItems);
+  };
+
+  // Pre-seed mock data on component load from the active restaurant
   useEffect(() => {
-    if (restaurants && restaurants.length > 0) {
-      const seeded = restaurants[0].menu.map((item, index) => {
-        const tags: ("Veg" | "Spicy" | "Bestseller" | "New")[] = [];
-        if (item.popular) tags.push("Bestseller");
+    if (activeRestaurant && activeRestaurant.menu.length > 0) {
+      if (activeRestaurant.id === currentRestaurantId && items.length > 0) {
+        return;
+      }
+      setCurrentRestaurantId(activeRestaurant.id);
 
-        const isDrink = ["mojito", "soft drink", "milkshake", "juice", "beverage", "drink"].some(c => item.category.toLowerCase().includes(c));
-        const isNonVeg = ["chicken", "beef", "prawn", "mutton", "fish", "seafood", "meat", "crab", "sausage", "egg"].some(w => item.name.toLowerCase().includes(w) || item.description.toLowerCase().includes(w));
-        if (index % 4 === 0 && !isDrink && !isNonVeg) tags.push("Veg");
-        if (index % 3 === 0 && !isDrink) tags.push("Spicy");
-        if (index === 0 || index === 3) tags.push("New");
+      const seeded = activeRestaurant.menu.map((item, index) => {
+        const typedItem = item as any;
 
-        let variants: MenuVariant[] = [];
-        if (item.category === "Fried Rice" || item.category === "Briyani" || item.category === "Kottu") {
+        // Reuse tags if they exist, otherwise compute default ones
+        const tags: ("Veg" | "Spicy" | "Bestseller" | "New")[] = typedItem.tags || [];
+        if (tags.length === 0) {
+          if (item.popular) tags.push("Bestseller");
+          const isDrink = ["mojito", "soft drink", "milkshake", "juice", "beverage", "drink"].some(c => item.category.toLowerCase().includes(c));
+          const isNonVeg = ["chicken", "beef", "prawn", "mutton", "fish", "seafood", "meat", "crab", "sausage", "egg"].some(w => item.name.toLowerCase().includes(w) || item.description.toLowerCase().includes(w));
+          if (index % 4 === 0 && !isDrink && !isNonVeg) tags.push("Veg");
+          if (index % 3 === 0 && !isDrink) tags.push("Spicy");
+          if (index === 0 || index === 3) tags.push("New");
+        }
+
+        // Reuse variants if they exist, otherwise compute default ones
+        let variants: MenuVariant[] = typedItem.variants || [];
+        if (variants.length === 0 && (item.category === "Fried Rice" || item.category === "Briyani" || item.category === "Kottu")) {
           variants = [
             { name: "Regular", price: item.price },
             { name: "Full / Double", price: item.price + 350 }
           ];
         }
 
-        const addons: MenuAddon[] = [
+        // Reuse addons if they exist, otherwise compute default ones
+        const addons: MenuAddon[] = typedItem.addons || [
           { name: "Extra Gravy", price: 80 },
           { name: "Egg / Cheese Wrap", price: 120 }
         ];
@@ -100,19 +143,27 @@ export function MenuManagement() {
           description: item.description,
           image: item.image,
           price: item.price,
-          stock: index % 6 === 0 ? 0 : 35 + index,
-          isAvailable: index % 6 !== 0,
+          stock: typedItem.stock !== undefined ? typedItem.stock : (index % 6 === 0 ? 0 : 35 + index),
+          isAvailable: typedItem.isAvailable !== undefined ? typedItem.isAvailable : (index % 6 !== 0),
           tags,
           variants,
           addons,
-          timeAvailability: (index % 3 === 0 ? "Lunch" : index % 3 === 1 ? "Dinner" : "All Day") as "All Day" | "Breakfast" | "Lunch" | "Dinner",
+          timeAvailability: typedItem.timeAvailability || ((index % 3 === 0 ? "Lunch" : index % 3 === 1 ? "Dinner" : "All Day") as "All Day" | "Breakfast" | "Lunch" | "Dinner"),
           rating: item.rating || 4.2,
-          ordersCount: 88 + index * 14
+          ordersCount: typedItem.ordersCount || (88 + index * 14)
         };
       });
       setItems(seeded);
     }
-  }, []);
+  }, [activeRestaurant, currentRestaurantId, items.length]);
+
+  // Open Add Food Item modal if URL hash is #add
+  useEffect(() => {
+    if (window.location.hash === "#add" && items.length > 0) {
+      openAddModal();
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, [items]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -124,8 +175,8 @@ export function MenuManagement() {
 
   // Switch availability toggle
   const toggleAvailability = (itemId: string) => {
-    setItems((prev) =>
-      prev.map((it) => {
+    setItems((prev) => {
+      const updated = prev.map((it) => {
         if (it.id === itemId) {
           const nextState = !it.isAvailable;
           toast.success(`${it.name} is now ${nextState ? "Available" : "Unavailable"}`);
@@ -136,12 +187,17 @@ export function MenuManagement() {
           };
         }
         return it;
-      })
-    );
+      });
+      syncWithContext(updated);
+      return updated;
+    });
   };
 
-  // Get distinct categories
-  const categoriesList = ["All", ...Array.from(new Set(items.map((it) => it.category)))];
+  // Get distinct categories from restaurant settings and existing menu items.
+  const categoriesList = [
+    "All",
+    ...Array.from(new Set([...(activeRestaurant?.categories || []), ...items.map((it) => it.category)])),
+  ];
 
   // Filters logic
   const filteredItems = items.filter((item) => {
@@ -197,18 +253,31 @@ export function MenuManagement() {
     setFormIsAvailable(true);
     setFormTags(["New"]);
     setFormVariants([]);
-    setFormAddons([
-      { name: "Extra Gravy", price: 80 }
-    ]);
+    // Retain previously configured addons, or if none, set default ones
+    if (formAddons.length === 0) {
+      setFormAddons([
+        { name: "Extra Gravy", price: 80 },
+        { name: "Egg / Cheese Wrap", price: 120 }
+      ]);
+    }
     setFormTimeAvailability("All Day");
   };
 
   // Delete Food Item
-  const handleDeleteItem = (itemId: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete ${name} from your menu?`)) {
-      setItems((prev) => prev.filter((it) => it.id !== itemId));
-      toast.error(`${name} has been deleted from the menu.`);
-    }
+  const handleDeleteItem = (item: MenuItem) => {
+    setDeleteTarget(item);
+  };
+
+  const confirmDeleteItem = () => {
+    if (!deleteTarget) return;
+
+    setItems((prev) => {
+      const updated = prev.filter((it) => it.id !== deleteTarget.id);
+      syncWithContext(updated);
+      return updated;
+    });
+    toast.error(`${deleteTarget.name} has been deleted from the menu.`);
+    setDeleteTarget(null);
   };
 
   // Dynamic Add / Remove Variants inside Modal
@@ -292,13 +361,17 @@ export function MenuManagement() {
         ordersCount: 0
       };
 
-      setItems([newItem, ...items]);
+      setItems((prev) => {
+        const updated = [newItem, ...prev];
+        syncWithContext(updated);
+        return updated;
+      });
       toast.success(`${formName} has been added to the menu!`);
     } else {
       // Edit mode
       if (!activeModalItem) return;
-      setItems((prev) =>
-        prev.map((it) => {
+      setItems((prev) => {
+        const updated = prev.map((it) => {
           if (it.id === activeModalItem.id) {
             return {
               ...it,
@@ -316,8 +389,10 @@ export function MenuManagement() {
             };
           }
           return it;
-        })
-      );
+        });
+        syncWithContext(updated);
+        return updated;
+      });
       toast.success(`${formName} updated successfully!`);
     }
 
@@ -332,17 +407,20 @@ export function MenuManagement() {
     const nextIndex = direction === "up" ? index - 1 : index + 1;
     if (nextIndex < 0 || nextIndex >= filteredItems.length) return;
 
-    const nextItems = [...items];
     // Find absolute index of item in state array
     const absoluteIndex1 = items.findIndex((it) => it.id === filteredItems[index].id);
     const absoluteIndex2 = items.findIndex((it) => it.id === filteredItems[nextIndex].id);
 
-    // Swap elements
-    const temp = nextItems[absoluteIndex1];
-    nextItems[absoluteIndex1] = nextItems[absoluteIndex2];
-    nextItems[absoluteIndex2] = temp;
-
-    setItems(nextItems);
+    setItems((prev) => {
+      const nextItems = [...prev];
+      // Swap elements
+      const temp = nextItems[absoluteIndex1];
+      nextItems[absoluteIndex1] = nextItems[absoluteIndex2];
+      nextItems[absoluteIndex2] = temp;
+      
+      syncWithContext(nextItems);
+      return nextItems;
+    });
     toast.success("Menu items sequence updated");
   };
 
@@ -684,7 +762,7 @@ export function MenuManagement() {
                         <Edit size={11} />
                       </button>
                       <button
-                        onClick={() => handleDeleteItem(item.id, item.name)}
+                        onClick={() => handleDeleteItem(item)}
                         className="p-1.5 rounded-lg border border-rose-100 hover:bg-rose-50 dark:border-rose-950/20 bg-white dark:bg-slate-900 text-rose-500 hover:text-rose-600 shadow-xs transition cursor-pointer"
                         title="Delete Item"
                       >
@@ -707,6 +785,79 @@ export function MenuManagement() {
             </div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* Delete Item Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget ? (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="fixed inset-0 bg-black z-45"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-menu-item-title"
+              className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md h-fit bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-950/40 shadow-2xl z-50 rounded-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-rose-100/70 dark:border-rose-950/40 bg-rose-50/70 dark:bg-rose-950/10 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h2 id="delete-menu-item-title" className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                    Delete Menu Item
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    This action removes the item from the customer menu.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="flex gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3">
+                  <div className="h-14 w-14 rounded-xl overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shrink-0">
+                    <img src={deleteTarget.image} alt={deleteTarget.name} className="h-full w-full object-cover" />
+                  </div>
+                  <div className="min-w-0 flex flex-col justify-center">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{deleteTarget.name}</span>
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">{deleteTarget.category}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                  Are you sure you want to delete this item? You will need to add it again manually if you change your mind.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider rounded-xl transition duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteItem}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} /> Delete Item
+                </button>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
       </AnimatePresence>
 
 

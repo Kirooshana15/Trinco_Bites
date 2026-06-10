@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import type { FoodItem } from "@/utils/data/mock";
+import type { Offer } from "@/context/RestaurantContext";
+import { getCartItemPrices } from "@/utils/pricing";
 
 export type CartItem = FoodItem & { 
   quantity: number; 
@@ -8,6 +10,7 @@ export type CartItem = FoodItem & {
   selectedExtras?: { name: string; price: number }[];
   instructions?: string;
   customPrice?: number;
+  appliedOffer?: Offer;
 };
 
 type CartCtx = {
@@ -80,7 +83,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems((p) => (qty <= 0 ? p.filter((i) => i.id !== id) : p.map((i) => (i.id === id ? { ...i, quantity: qty } : i))));
   const clear = () => setItems([]);
 
-  const total = useMemo(() => items.reduce((s, i) => s + (i.customPrice || i.price) * i.quantity, 0), [items]);
+  const total = useMemo(() => items.reduce((s, i) => s + getCartItemPrices(i).itemTotal, 0), [items]);
   const count = useMemo(() => items.reduce((s, i) => s + i.quantity, 0), [items]);
 
   return <Ctx.Provider value={{ items, total, count, add, decrement, remove, setQty, clear }}>{children}</Ctx.Provider>;

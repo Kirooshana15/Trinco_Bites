@@ -15,7 +15,12 @@ import {
   Minus,
   X,
   ChevronLeft,
-  Gift
+  Gift,
+  Globe,
+  Facebook,
+  Instagram,
+  Youtube,
+  Compass
 } from "lucide-react";
 import React, { useState, useMemo, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
@@ -48,29 +53,24 @@ function isCurrentlyOpen(open: string, close: string) {
 }
 
 function getAutomaticOfferStatus(offer: Offer) {
-  if (offer.status === "Draft") return "Paused";
+  if (offer.status === "Draft") return "Draft";
 
   const now = new Date();
-  
-  // Format dates: YYYY-MM-DD
-  const todayStr = now.getFullYear() + "-" + 
-    String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+
+  const todayStr = now.getFullYear() + "-" +
+    String(now.getMonth() + 1).padStart(2, "0") + "-" +
     String(now.getDate()).padStart(2, "0");
-    
+
   const start = offer.startDate;
   const end = offer.endDate;
 
   if (todayStr > end) return "Expired";
   if (todayStr < start) return "Scheduled";
 
-  // Check active day of week (e.g. "Mon", "Tue", etc.)
   const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const currentDay = daysMap[now.getDay()];
-  if (!offer.activeDays.includes(currentDay)) {
-    return "Scheduled"; // active overall, but not today
-  }
+  if (!offer.activeDays.includes(currentDay)) return "Scheduled";
 
-  // Check active times if specified
   if (offer.startTime && offer.endTime) {
     const parseTimeToMinutes = (t: string) => {
       const [time, period] = t.split(" ");
@@ -85,14 +85,51 @@ function getAutomaticOfferStatus(offer: Offer) {
     const endMinutes = parseTimeToMinutes(offer.endTime);
 
     if (startMinutes < endMinutes) {
-      if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
-        return "Scheduled"; // active today, but not right now
-      }
+      if (currentMinutes < startMinutes || currentMinutes > endMinutes) return "Scheduled";
     } else {
-      // Handles overnight ranges (e.g. 10 PM to 1 AM)
-      if (currentMinutes < startMinutes && currentMinutes > endMinutes) {
-        return "Scheduled";
-      }
+      if (currentMinutes < startMinutes && currentMinutes > endMinutes) return "Scheduled";
+    }
+  }
+
+  return "Active";
+}
+
+function getLiveOfferState(offer: Offer) {
+  if (offer.status !== "Active") return offer.status;
+
+  const now = new Date();
+
+  const todayStr = now.getFullYear() + "-" +
+    String(now.getMonth() + 1).padStart(2, "0") + "-" +
+    String(now.getDate()).padStart(2, "0");
+
+  const start = offer.startDate;
+  const end = offer.endDate;
+
+  if (todayStr > end) return "Expired";
+  if (todayStr < start) return "Scheduled";
+
+  const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const currentDay = daysMap[now.getDay()];
+  if (!offer.activeDays.includes(currentDay)) return "Scheduled";
+
+  if (offer.startTime && offer.endTime) {
+    const parseTimeToMinutes = (t: string) => {
+      const [time, period] = t.split(" ");
+      let [hours, minutes] = time.split(":").map(Number);
+      if (period === "PM" && hours !== 12) hours += 12;
+      if (period === "AM" && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    };
+
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const startMinutes = parseTimeToMinutes(offer.startTime);
+    const endMinutes = parseTimeToMinutes(offer.endTime);
+
+    if (startMinutes < endMinutes) {
+      if (currentMinutes < startMinutes || currentMinutes > endMinutes) return "Scheduled";
+    } else {
+      if (currentMinutes < startMinutes && currentMinutes > endMinutes) return "Scheduled";
     }
   }
 
@@ -215,15 +252,15 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
         transition={{ type: "spring", stiffness: 220, damping: 24 }}
         className="absolute bottom-4 right-4 z-30"
       >
-        <div 
+        <div
           className="h-24 w-24 md:h-28 md:w-28 rounded-full border-[4px] border-white/90 shadow-2xl overflow-hidden bg-white transform"
           style={{ rotate: index % 2 === 0 ? "-10deg" : "10deg" }}
         >
           <motion.img
             layoutId={`card-image-${item.id}`}
             transition={{ type: "spring", stiffness: 220, damping: 24 }}
-            src={item.image}
-            alt={item.name}
+            src={getCategoryImage(item.category, item.image)}
+            alt={item.category}
             className="h-full w-full object-cover"
           />
         </div>
@@ -239,7 +276,7 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
   );
 
   return isOpen ? (
-    <Link to="/food/$id" params={{ id: item.id }}>
+    <Link to="/food/$id" params={{ id: item.id }} search={{ restaurantId }}>
       {card}
     </Link>
   ) : (
@@ -269,6 +306,31 @@ const CAT_DESCRIPTIONS: Record<string, string> = {
   "Omlete": "Fluffy egg omelets filled with vegetables, cheese, and savory ingredients for a simple tasty bite.",
 };
 
+function getCategoryImage(categoryName: string, fallbackImage: string) {
+  const match = categories.find((category) => category.name.toLowerCase() === categoryName.toLowerCase());
+  return match?.image || fallbackImage;
+}
+
+function getOfferFoodItemId(offerId: string, restaurant: any): string | null {
+  if (offerId === "O-204") return "f7";
+  if (offerId === "O-205") return "f8";
+
+  if (offerId === "O-201") {
+    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("burger") || item.name.toLowerCase().includes("burger"));
+    return found ? found.id : restaurant.menu[0]?.id || null;
+  }
+  if (offerId === "O-202") {
+    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("pizza") || item.name.toLowerCase().includes("pizza"));
+    return found ? found.id : restaurant.menu[0]?.id || null;
+  }
+  if (offerId === "O-203") {
+    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("briyani") || item.name.toLowerCase().includes("briyani"));
+    return found ? found.id : restaurant.menu[0]?.id || null;
+  }
+
+  return restaurant.menu[0]?.id || null;
+}
+
 export function RestaurantPage() {
   const { findRestaurant, offers } = useRestaurants();
   const { id } = useParams({ strict: false });
@@ -276,17 +338,27 @@ export function RestaurantPage() {
   const { count, add, decrement, items: cartItems } = useCart();
   const [activeCategory, setActiveCategory] = useState("All");
 
+  useEffect(() => {
+    const offerParam = new URLSearchParams(window.location.search).get("offer");
+    if (offerParam) {
+      setTimeout(() => {
+        const el = document.getElementById("offers-section");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      }, 300);
+    }
+  }, [id]);
+
   const activeAndLiveOffers = useMemo(() => {
     if (!r) return [];
     return offers
       .filter(o => o.restaurantId === r.id)
       .map(o => ({
         ...o,
-        computedStatus: getAutomaticOfferStatus(o)
+        computedStatus: getAutomaticOfferStatus(o),
+        liveState: getLiveOfferState(o)
       }))
-      .filter(o => o.computedStatus !== "Expired" && o.status !== "Draft");
+      .filter(o => o.computedStatus === "Active" || o.computedStatus === "Scheduled");
   }, [offers, r]);
-
 
   if (!r) return null;
 
@@ -295,6 +367,8 @@ export function RestaurantPage() {
   const uniqueMenu = useMemo(() => {
     const seen = new Set<string>();
     return r.menu.filter((item) => {
+      const typedItem = item as any;
+      if (typedItem.isAvailable === false || typedItem.stock === 0) return false;
       if (seen.has(item.category)) return false;
       seen.add(item.category);
       return true;
@@ -307,21 +381,18 @@ export function RestaurantPage() {
   }, [uniqueMenu, activeCategory]);
 
   const popularItems = useMemo(() => {
-    return r.menu.filter(item => item.popular).slice(0, 3);
+    return r.menu.filter(item => item.popular && (item as any).isAvailable !== false && (item as any).stock !== 0).slice(0, 3);
   }, [r.menu]);
 
   return (
-    <div
-      className="flex min-h-screen flex-col"
-      style={{ background: C.bg, fontFamily: "var(--font-body)" }}
-    >
+    <div className="flex min-h-screen flex-col" style={{ background: C.bg, fontFamily: "var(--font-body)" }}>
       <Navbar />
 
       <main className="flex-1">
         {/* ── Hero Banner ──────────────────────────────────────────── */}
         <section className="relative overflow-hidden rounded-b-[40px] md:rounded-b-[80px]" style={{ minHeight: 400 }}>
           <div className="absolute inset-0 rounded-b-[40px] md:rounded-b-[80px] overflow-hidden">
-            <img src={r.image} alt={r.name} className="h-full w-full object-cover" />
+            <img src={r.coverImage || r.image} alt={r.name} className="h-full w-full object-cover" />
             <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(18,4,0,0.4) 0%, rgba(18,4,0,0.85) 100%)" }} />
           </div>
 
@@ -335,7 +406,7 @@ export function RestaurantPage() {
             <div className="flex flex-col items-center text-center">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-4 mb-4">
                 <div className="h-20 w-20 rounded-2xl bg-white p-1 shadow-2xl border-2 border-[#F8DDA4]/30 overflow-hidden">
-                  <img src={r.image} alt="logo" className="h-full w-full object-cover rounded-xl" />
+                  <img src={r.logoImage || r.image} alt="logo" className="h-full w-full object-cover rounded-xl" />
                 </div>
                 <div className="px-4 py-1.5 rounded-full bg-[#D45113] text-white text-[10px] font-black uppercase tracking-widest">
                   {r.category}
@@ -347,16 +418,23 @@ export function RestaurantPage() {
                 {r.name}
               </motion.h1>
 
+              {r.tagline && (
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}
+                  className="mt-2 text-base text-white/75 font-medium italic max-w-lg">
+                  {r.tagline}
+                </motion.p>
+              )}
+
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
                 className="mt-6 flex flex-wrap items-center justify-center gap-6 text-white/90 text-sm">
                 <div className="flex items-center gap-2"><MapPin size={16} className="text-[#F9A03F]" /> {r.location}</div>
-                <div className="flex items-center gap-2"><Star size={16} className="text-[#F9A03F] fill-[#F9A03F]" /> {r.rating} (500+ reviews)</div>
+                <div className="flex items-center gap-2"><Star size={16} className="text-[#F9A03F] fill-[#F9A03F]" /> {r.rating} ({r.reviewsCount !== undefined ? `${r.reviewsCount} reviews` : '500+ reviews'})</div>
               </motion.div>
             </div>
           </div>
         </section>
 
-        {/* ── Restaurant Info Section ─────────────────────────────── */}
+        {/* ── Restaurant Info + Social Section ─────────────────────── */}
         <section className="mx-auto max-w-6xl px-4 -mt-10 relative z-20">
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
             className="bg-white rounded-[32px] p-6 shadow-2xl border border-[#F8DDA4]/40 grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -383,7 +461,7 @@ export function RestaurantPage() {
 
             <div className="flex flex-col items-center text-center p-2 border-l border-slate-100">
               <Info className="text-[#D45113] mb-2" size={20} />
-              <p className={`text-[11px] font-black leading-tight ${r.deliveryAvailable ? 'text-[#813405]' : 'text-red-600'}`}>
+              <p className={`text-[11px] font-black leading-tight ${r.deliveryAvailable ? 'text-[#813405]' : 'text-red-750'}`}>
                 {r.deliveryAvailable ? `Rs. ${r.deliveryFee?.toLocaleString()}.00` : "Delivery Unavailable"}
               </p>
               <p className="text-[10px] text-slate-500 uppercase tracking-tighter mt-1">
@@ -391,11 +469,64 @@ export function RestaurantPage() {
               </p>
             </div>
           </motion.div>
+
+          {/* ── Social Links + Description Card ───────────────────── */}
+          {(r.website || r.facebook || r.instagram || r.youtube || r.tiktok || r.phone || r.description) && (
+            <motion.div initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.15 }}
+              className="mt-4 bg-white rounded-[24px] p-5 shadow-lg border border-[#F8DDA4]/40 flex flex-col gap-4">
+              {(r.website || r.facebook || r.instagram || r.youtube || r.tiktok) && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Follow Us:</span>
+                  {r.website && (
+                    <a href={r.website} target="_blank" rel="noopener noreferrer" title="Official Website"
+                      className="h-9 w-9 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-200/60 flex items-center justify-center text-blue-600 transition-all hover:scale-110 shadow-sm">
+                      <Globe size={17} />
+                    </a>
+                  )}
+                  {r.facebook && (
+                    <a href={r.facebook} target="_blank" rel="noopener noreferrer" title="Facebook"
+                      className="h-9 w-9 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-300/60 flex items-center justify-center text-blue-700 transition-all hover:scale-110 shadow-sm">
+                      <Facebook size={17} />
+                    </a>
+                  )}
+                  {r.instagram && (
+                    <a href={r.instagram} target="_blank" rel="noopener noreferrer" title="Instagram"
+                      className="h-9 w-9 rounded-full bg-pink-50 hover:bg-pink-100 border border-pink-200/60 flex items-center justify-center text-pink-600 transition-all hover:scale-110 shadow-sm">
+                      <Instagram size={17} />
+                    </a>
+                  )}
+                  {r.youtube && (
+                    <a href={r.youtube} target="_blank" rel="noopener noreferrer" title="YouTube"
+                      className="h-9 w-9 rounded-full bg-red-50 hover:bg-red-100 border border-red-200/60 flex items-center justify-center text-red-650 hover:scale-110 shadow-sm">
+                      <Youtube size={17} />
+                    </a>
+                  )}
+                  {r.tiktok && (
+                    <a href={r.tiktok} target="_blank" rel="noopener noreferrer" title="TikTok"
+                      className="h-9 w-9 rounded-full bg-zinc-100 hover:bg-zinc-200 border border-zinc-300/60 flex items-center justify-center text-zinc-700 transition-all hover:scale-110 shadow-sm">
+                      <Compass size={17} />
+                    </a>
+                  )}
+                  {r.phone && (
+                    <a href={`tel:${r.phone}`} title="Call Us"
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#D45113]/10 hover:bg-[#D45113]/20 text-[#D45113] text-xs font-bold border border-[#D45113]/20 transition-colors">
+                      📞 {r.phone}
+                    </a>
+                  )}
+                </div>
+              )}
+              {r.description && (
+                <p className="text-sm text-slate-600 leading-relaxed border-t border-slate-100 pt-4">
+                  {r.description}
+                </p>
+              )}
+            </motion.div>
+          )}
         </section>
 
         {/* ── Available Offers Section ────────────────────────────── */}
         {activeAndLiveOffers.length > 0 && (
-          <section className="mx-auto max-w-6xl px-4 mt-10">
+          <section id="offers-section" className="mx-auto max-w-6xl px-4 mt-10">
             <div className="flex items-center justify-between mb-5">
               <div className="flex flex-col text-left">
                 <div className="flex items-center gap-2">
@@ -410,16 +541,17 @@ export function RestaurantPage() {
 
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
               {activeAndLiveOffers.map((offer) => {
-                const isActiveRightNow = offer.computedStatus === "Active";
-                
-                return (
+                const isActiveRightNow = offer.liveState === "Active";
+                const foodItemId = getOfferFoodItemId(offer.id, r);
+
+                const cardContent = (
                   <motion.div
-                    key={offer.id}
-                    whileHover={{ y: -4 }}
-                    className="flex-shrink-0 w-80 md:w-96 rounded-2xl bg-white border border-[#F8DDA4]/30 shadow-md p-4 snap-start flex flex-col justify-between"
+                    whileHover={isOpen && foodItemId ? { y: -4, scale: 1.01 } : {}}
+                    className={`flex-shrink-0 w-80 md:w-96 rounded-2xl bg-white border border-[#F8DDA4]/30 shadow-md p-4 snap-start flex flex-col justify-between ${
+                      isOpen && foodItemId ? "cursor-pointer hover:border-[#D45113]/30 transition-all" : "cursor-not-allowed opacity-80"
+                    }`}
                   >
                     <div className="flex gap-3">
-                      {/* Banner / Image block */}
                       {offer.bannerImage ? (
                         <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 relative bg-slate-50 border border-slate-100">
                           <img src={offer.bannerImage} alt={offer.title} className="w-full h-full object-cover" />
@@ -462,15 +594,36 @@ export function RestaurantPage() {
                       <span className="text-xs font-extrabold text-[#D45113] bg-orange-50 border border-orange-100/50 px-2.5 py-0.5 rounded-lg shadow-sm">
                         {offer.discountBadge}
                       </span>
-                      <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
-                        isActiveRightNow 
-                          ? "bg-green-100 text-green-700 border border-green-200/50 animate-pulse" 
-                          : "bg-amber-100 text-amber-700 border border-amber-200/50"
-                      }`}>
-                        {isActiveRightNow ? "✓ Auto Applied" : "Starts Soon"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
+                          isActiveRightNow
+                            ? "bg-green-100 text-green-700 border border-green-200/50"
+                            : "bg-amber-100 text-amber-700 border border-amber-200/50"
+                        }`}>
+                          {isActiveRightNow ? "✓ Auto Applied" : "Starts Soon"}
+                        </span>
+                        {isOpen && foodItemId && (
+                          <span className="text-[10px] font-black text-orange-650 flex items-center gap-0.5 bg-orange-100/50 px-2 py-1 rounded-lg border border-orange-200/50 hover:bg-orange-100">
+                            Order Deal <ChevronRight size={10} strokeWidth={3} />
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
+                );
+
+                return isOpen && foodItemId ? (
+                  <Link
+                    key={offer.id}
+                    to="/food/$id"
+                    params={{ id: foodItemId }}
+                    search={{ restaurantId: r.id, offerId: offer.id }}
+                    className="block"
+                  >
+                    {cardContent}
+                  </Link>
+                ) : (
+                  <div key={offer.id} className="block">{cardContent}</div>
                 );
               })}
             </div>
@@ -504,9 +657,6 @@ export function RestaurantPage() {
             </AnimatePresence>
           </div>
         </section>
-
-
-
       </main>
 
       <Footer />

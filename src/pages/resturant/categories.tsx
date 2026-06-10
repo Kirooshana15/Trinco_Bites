@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { categories as mockCategories } from "@/utils/data/mock";
+import { useAuth } from "@/context/AuthContext";
+import { useRestaurants } from "@/context/RestaurantContext";
 
 // Define Category Item interface
 export interface CategoryItem {
@@ -33,7 +35,25 @@ const IconComponents = {
   Utensils: Utensils
 };
 
+const getCategoryImage = (name: string) => {
+  const match = mockCategories.find((category) => category.name.toLowerCase() === name.toLowerCase());
+  return match?.image || mockCategories[0]?.image || "";
+};
+
+const getCategoryIcon = (name: string): CategoryItem["iconName"] => {
+  const lower = name.toLowerCase();
+  if (lower.includes("pizza") || lower.includes("burger")) return "Pizza";
+  if (lower.includes("mojito") || lower.includes("juice") || lower.includes("drink") || lower.includes("milkshake")) return "GlassWater";
+  if (lower.includes("dessert")) return "IceCream";
+  if (lower.includes("seafood") || lower.includes("fish") || lower.includes("prawn")) return "Fish";
+  if (lower.includes("kottu") || lower.includes("spicy")) return "Flame";
+  return "Utensils";
+};
+
 export function CategoryManagement() {
+  const { user } = useAuth();
+  const { restaurants, updateRestaurantMenu, updateRestaurantProfile } = useRestaurants();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Hidden">("All");
@@ -44,6 +64,7 @@ export function CategoryManagement() {
   // Modal / form states
   const [activeModalCategory, setActiveModalCategory] = useState<CategoryItem | null>(null);
   const [isAddMode, setIsAddMode] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CategoryItem | null>(null);
 
   // Form Fields State
   const [formName, setFormName] = useState("");
@@ -53,42 +74,55 @@ export function CategoryManagement() {
   const [formDisplayOrder, setFormDisplayOrder] = useState(1);
   const [formStatus, setFormStatus] = useState<"Active" | "Hidden">("Active");
 
-  // Preseed mock categories dynamically using assets from mock.ts
+  const buildCategoriesFromRestaurant = () => {
+    if (!activeRestaurant) return [];
+
+    const menuCategoryNames = Array.from(new Set(activeRestaurant.menu.map((item) => item.category)));
+    const knownCategoryNames = Array.from(new Set([...activeRestaurant.categories, ...menuCategoryNames]));
+
+    return knownCategoryNames.map((name, index) => {
+      const categoryItems = activeRestaurant.menu.filter((item) => item.category === name);
+      const isVisibleCategory = activeRestaurant.categories.includes(name);
+
+      return {
+        id: `TB-C-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        name,
+        description: `${name} menu category`,
+        image: getCategoryImage(name),
+        iconName: getCategoryIcon(name),
+        totalItems: categoryItems.length,
+        status: isVisibleCategory ? "Active" : "Hidden",
+        createdDate: "2026-05-10",
+        displayOrder: index + 1,
+      } satisfies CategoryItem;
+    });
+  };
+
   useEffect(() => {
-    if (mockCategories && mockCategories.length > 0) {
-      // Pick custom gourmet ones to display on Category grid
-      const listToMap = [
-        { name: "Burgers", desc: "Premium flame-grilled gourmet beef & chicken burgers", icon: "Pizza" as const, items: 12, date: "2026-05-10" },
-        { name: "Pizza", desc: "Artisanal hand-tossed neapolitan stone-baked pizzas", icon: "Pizza" as const, items: 8, date: "2026-05-12" },
-        { name: "Mojito", desc: "Refreshing ice-cold muddled fresh mint and lime mocktails", icon: "GlassWater" as const, items: 10, date: "2026-05-15" },
-        { name: "Dessets", desc: "Decadent fresh gourmet cheesecakes and gelato desserts", icon: "IceCream" as const, items: 6, date: "2026-05-18" },
-        { name: "Seafood", desc: "Lagoon fresh crabs, jumbo prawns & grilled reef seer fish", icon: "Fish" as const, items: 15, date: "2026-05-02" },
-        { name: "Fried Rice", desc: "Wok-fried aromatic jasmine rice cooked in high heat", icon: "Utensils" as const, items: 14, date: "2026-05-05" },
-        { name: "Kottu", desc: "Traditional shred godamba roti wok-tossed with spicy gravy", icon: "Flame" as const, items: 18, date: "2026-05-01" },
-        { name: "Briyani", desc: "Fragrant premium basmati biryani layered with spices", icon: "Utensils" as const, items: 11, date: "2026-05-08" }
-      ];
+    setCategories(buildCategoriesFromRestaurant());
+  }, [activeRestaurant?.id, activeRestaurant?.menu, activeRestaurant?.categories]);
 
-      const seeded = listToMap.map((c, index) => {
-        // Match image asset from mock categories
-        const mockMatch = mockCategories.find((mc) => mc.name.toLowerCase() === c.name.toLowerCase() || (c.name === "Mojito" && mc.name === "Mojito") || (c.name === "Dessets" && mc.name === "Dessets"));
-        const imgAsset = mockMatch?.image || mockCategories[0].image;
+  const cascadeCategoryVisibility = (categoryName: string, nextStatus: "Active" | "Hidden") => {
+    if (!activeRestaurant) return;
 
-        return {
-          id: `TB-C00${index + 1}`,
-          name: c.name,
-          description: c.desc,
-          image: imgAsset,
-          iconName: c.icon,
-          totalItems: c.items,
-          status: (index % 6 === 0 ? "Hidden" : "Active") as "Active" | "Hidden",
-          createdDate: c.date,
-          displayOrder: index + 1
-        };
-      });
+    const updatedMenu = activeRestaurant.menu.map((item) => {
+      if (item.category !== categoryName) return item;
+      const typedItem = item as any;
+      return {
+        ...item,
+        isAvailable: nextStatus === "Active",
+        stock: nextStatus === "Active" ? (typedItem.stock && typedItem.stock > 0 ? typedItem.stock : 20) : 0,
+      };
+    });
 
-      setCategories(seeded);
-    }
-  }, []);
+    const nextCategories =
+      nextStatus === "Active"
+        ? Array.from(new Set([...activeRestaurant.categories, categoryName]))
+        : activeRestaurant.categories.filter((name) => name !== categoryName);
+
+    updateRestaurantMenu(activeRestaurant.id, updatedMenu);
+    updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
+  };
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -100,11 +134,13 @@ export function CategoryManagement() {
 
   // Toggle Visibility Status directly on card
   const toggleVisibility = (catId: string) => {
+    const target = categories.find((category) => category.id === catId);
+    if (!target) return;
+    const nextStatus = target.status === "Active" ? "Hidden" : "Active";
+
     setCategories((prev) =>
       prev.map((c) => {
         if (c.id === catId) {
-          const nextStatus = c.status === "Active" ? "Hidden" : "Active";
-          toast.success(`Category "${c.name}" status set to ${nextStatus}`);
           return {
             ...c,
             status: nextStatus
@@ -113,14 +149,26 @@ export function CategoryManagement() {
         return c;
       })
     );
+    cascadeCategoryVisibility(target.name, nextStatus);
+    toast.success(`Category "${target.name}" ${nextStatus === "Active" ? "enabled" : "disabled"} in menu and customer view`);
   };
 
   // Delete Category item
-  const handleDeleteCategory = (catId: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete category "${name}"? This will unassign all items.`)) {
-      setCategories((prev) => prev.filter((c) => c.id !== catId));
-      toast.error(`Category "${name}" deleted successfully.`);
+  const handleDeleteCategory = (cat: CategoryItem) => {
+    setDeleteTarget(cat);
+  };
+
+  const confirmDeleteCategory = () => {
+    if (!deleteTarget) return;
+    if (activeRestaurant) {
+      const updatedMenu = activeRestaurant.menu.filter((item) => item.category !== deleteTarget.name);
+      const updatedCategories = activeRestaurant.categories.filter((name) => name !== deleteTarget.name);
+      updateRestaurantMenu(activeRestaurant.id, updatedMenu);
+      updateRestaurantProfile(activeRestaurant.id, { categories: updatedCategories });
     }
+    setCategories((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+    toast.error(`Category "${deleteTarget.name}" and its menu items were removed from customer view.`);
+    setDeleteTarget(null);
   };
 
 
@@ -189,6 +237,10 @@ export function CategoryManagement() {
     }
 
     if (isAddMode) {
+      if (activeRestaurant) {
+        const nextCategories = Array.from(new Set([...activeRestaurant.categories, formName]));
+        updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
+      }
       const newCat: CategoryItem = {
         id: `TB-C00${categories.length + 1}`,
         name: formName,
@@ -205,6 +257,31 @@ export function CategoryManagement() {
       toast.success(`Category "${formName}" created successfully!`);
     } else {
       if (!activeModalCategory) return;
+      if (activeRestaurant) {
+        const renamedMenu = activeRestaurant.menu.map((item) =>
+          item.category === activeModalCategory.name ? { ...item, category: formName } : item
+        );
+        const nextCategories = Array.from(
+          new Set(
+            activeRestaurant.categories
+              .filter((name) => name !== activeModalCategory.name)
+              .concat(formStatus === "Active" ? [formName] : [])
+          )
+        );
+
+        const updatedMenu = renamedMenu.map((item) => {
+          if (item.category !== formName) return item;
+          const typedItem = item as any;
+          return {
+            ...item,
+            isAvailable: formStatus === "Active",
+            stock: formStatus === "Active" ? (typedItem.stock && typedItem.stock > 0 ? typedItem.stock : 20) : 0,
+          };
+        });
+
+        updateRestaurantMenu(activeRestaurant.id, updatedMenu);
+        updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
+      }
       setCategories((prev) =>
         prev.map((c) => {
           if (c.id === activeModalCategory.id) {
@@ -514,8 +591,8 @@ export function CategoryManagement() {
                           <Edit size={11} />
                         </button>
                         <button
-                          onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                          className="p-1.5 rounded-lg border border-rose-100 hover:bg-rose-50 dark:border-rose-950/20 bg-white dark:bg-slate-900 text-rose-500 hover:text-rose-600 shadow-xs transition cursor-pointer"
+                          onClick={() => handleDeleteCategory(cat)}
+                          className="p-1.5 rounded-lg border border-rose-100 hover:bg-rose-50 dark:border-rose-955/20 bg-white dark:bg-slate-900 text-rose-500 hover:text-rose-600 shadow-xs transition cursor-pointer"
                           title="Delete Category"
                         >
                           <Trash2 size={11} />
@@ -581,7 +658,7 @@ export function CategoryManagement() {
                                 <Edit size={11} />
                               </button>
                               <button
-                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                                onClick={() => handleDeleteCategory(cat)}
                                 className="p-1.5 rounded-lg border border-rose-100 hover:bg-rose-50 dark:border-rose-950/20 bg-white dark:bg-slate-900 text-rose-500 hover:text-rose-600 shadow-xs transition"
                               >
                                 <Trash2 size={11} />
@@ -824,6 +901,79 @@ export function CategoryManagement() {
                   className="flex-1 py-2.5 bg-[#71A066] hover:bg-emerald-600 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-[#71A066]/10"
                 >
                   Save Category
+                </button>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
+
+      {/* Delete Item Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget ? (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="fixed inset-0 bg-black z-45"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-category-title"
+              className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md h-fit bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-955/20 shadow-2xl z-50 rounded-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-rose-100/70 dark:border-rose-955/40 bg-rose-50/70 dark:bg-rose-950/10 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-955/40 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <h2 id="delete-category-title" className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                    Delete Category
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    This action will unassign all items.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="flex gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3">
+                  <div className="h-14 w-14 rounded-xl overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shrink-0">
+                    <img src={deleteTarget.image} alt={deleteTarget.name} className="h-full w-full object-cover" />
+                  </div>
+                  <div className="min-w-0 flex flex-col justify-center text-left">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{deleteTarget.name}</span>
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">{deleteTarget.totalItems} Menu Items</span>
+                  </div>
+                </div>
+
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300 text-left">
+                  Are you sure you want to delete category "{deleteTarget.name}"? This action will unassign all items.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider rounded-xl transition duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteCategory}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} /> Delete Category
                 </button>
               </div>
             </motion.div>

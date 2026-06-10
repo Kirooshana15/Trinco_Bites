@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocationState } from "@/context/LocationContext";
 import type { SavedAddress } from "@/context/LocationContext";
 import { C } from "@/utils/theme";
+import { useAuth } from "@/context/AuthContext";
 
 type Step = "choose" | "map" | "save";
 type MapMode = "select" | "save";
@@ -147,7 +148,7 @@ export function LocationPage() {
   const [step, setStep] = useState<Step>("choose");
   const [mapMode, setMapMode] = useState<MapMode>("select");
   const [editingAddress, setEditingAddress] = useState<SavedAddress | null>(null);
-  
+
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(() => ({
     lat: selectedLocation.lat ?? DEFAULT_CENTER.lat,
     lng: selectedLocation.lng ?? DEFAULT_CENTER.lng,
@@ -155,7 +156,7 @@ export function LocationPage() {
     city: "",
     district: "",
   }));
-  
+
   const [searchQuery, setSearchQuery] = useState("");
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [error, setError] = useState("");
@@ -361,7 +362,9 @@ export function AddressesListView({
 
   const handleCopy = (address: SavedAddress, e: React.MouseEvent) => {
     e.stopPropagation();
-    const formatted = `${address.firstName || ""} ${address.lastName || ""}\n${address.streetAddress || address.address}\nPhone: +94 ${address.phoneNumber || ""}`;
+    const nameLine = address.fullName || `${address.firstName || ""} ${address.lastName || ""}`.trim();
+    const emailLine = address.email ? `Email: ${address.email}\n` : "";
+    const formatted = `${nameLine}\n${emailLine}${address.streetAddress || address.address}\nPhone: +94 ${address.phoneNumber || ""}`;
     navigator.clipboard.writeText(formatted);
     setCopiedId(address.id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -420,8 +423,10 @@ export function AddressesListView({
             if (!query.trim()) return true;
             const search = query.toLowerCase();
             return (
+              (addr.fullName || "").toLowerCase().includes(search) ||
               (addr.firstName || "").toLowerCase().includes(search) ||
               (addr.lastName || "").toLowerCase().includes(search) ||
+              (addr.email || "").toLowerCase().includes(search) ||
               (addr.streetAddress || addr.address || "").toLowerCase().includes(search)
             );
           })
@@ -449,8 +454,13 @@ export function AddressesListView({
                       </span>
                     )}
                     <h3 className="font-extrabold text-[#813405] text-base leading-snug">
-                      {address.firstName || address.label} {address.lastName || ""}
+                      {address.fullName || `${address.firstName || address.label} ${address.lastName || ""}`.trim()}
                     </h3>
+                    {address.email && (
+                      <span className="text-[#813405]/60 text-xs font-semibold">
+                        ({address.email})
+                      </span>
+                    )}
                     <span className="text-[#813405]/50 text-xs font-semibold">
                       {address.phoneNumber ? `+94 ${address.phoneNumber}` : ""}
                     </span>
@@ -557,37 +567,73 @@ export function AddAddressFormView({
   onBack: () => void;
   onSave: (address: SavedAddress) => void;
 }) {
-  // Prefill street address if editing, geocoded, or empty
+  const { user } = useAuth();
+
+  // Extract name parts from logged-in user
+  let defaultFirstName = "";
+  let defaultLastName = "";
+  if (user?.name) {
+    const parts = user.name.trim().split(/\s+/);
+    defaultFirstName = parts[0] || "";
+    defaultLastName = parts.slice(1).join(" ") || "";
+  }
+
+  // Extract phone number digits
+  let defaultPhoneNumber = "";
+  if (user?.phone) {
+    let clean = user.phone.replace(/\D/g, ""); // keep only digits
+    if (clean.startsWith("94")) {
+      clean = clean.substring(2);
+    }
+    clean = clean.replace(/^0/, "");
+    defaultPhoneNumber = clean;
+  }
+
+  // Prefill street address if editing
   const [streetAddress, setStreetAddress] = useState(
     initialAddress?.streetAddress || 
-    (initialAddress?.address ? initialAddress.address : "") || 
-    (geocodedPlace ? geocodedPlace.formattedAddress : "")
+    (initialAddress?.address ? initialAddress.address : "")
   );
-  
-  const [firstName, setFirstName] = useState(initialAddress?.firstName || "");
-  const [lastName, setLastName] = useState(initialAddress?.lastName || "");
-  const [phoneNumber, setPhoneNumber] = useState(initialAddress?.phoneNumber || "");
+
+  const [fullName, setFullName] = useState(
+    initialAddress?.fullName ||
+    (initialAddress?.firstName ? `${initialAddress.firstName} ${initialAddress.lastName || ""}`.trim() : "") ||
+    user?.name ||
+    ""
+  );
+  const [email, setEmail] = useState(
+    initialAddress?.email ||
+    user?.email ||
+    ""
+  );
+  const [phoneNumber, setPhoneNumber] = useState(initialAddress?.phoneNumber || defaultPhoneNumber);
   const [isDefault, setIsDefault] = useState(initialAddress?.isDefault || false);
   const [deliveryInstructions, setDeliveryInstructions] = useState(initialAddress?.deliveryInstructions || "");
 
   const canSave = useMemo(() => {
     return (
       streetAddress.trim() &&
-      firstName.trim() &&
-      lastName.trim() &&
+      fullName.trim() &&
+      email.trim() &&
       phoneNumber.trim().length >= 7
     );
-  }, [streetAddress, firstName, lastName, phoneNumber]);
+  }, [streetAddress, fullName, email, phoneNumber]);
 
   const handleSaveClick = () => {
     if (!canSave) return;
 
+    const nameParts = fullName.trim().split(/\s+/);
+    const parsedFirstName = nameParts[0] || "";
+    const parsedLastName = nameParts.slice(1).join(" ") || "";
+
     onSave({
       id: initialAddress?.id || `saved-${Date.now()}`,
       kind: initialAddress?.kind || "custom",
-      label: `${firstName.trim()} ${lastName.trim()}`,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
+      label: fullName.trim(),
+      fullName: fullName.trim(),
+      email: email.trim(),
+      firstName: parsedFirstName,
+      lastName: parsedLastName,
       phoneNumber: phoneNumber.trim().replace(/^0/, ""), // clean leading 0
       streetAddress: streetAddress.trim(),
       address: streetAddress.trim(),
@@ -627,7 +673,7 @@ export function AddAddressFormView({
 
       {/* Form Fields container */}
       <div className="flex-1 space-y-4 overflow-y-auto pb-4 pr-0.5" style={{ scrollbarWidth: "none" }}>
-        
+
         {/* Street Address */}
         <div>
           <label className="block text-[11px] font-extrabold uppercase tracking-wider text-[#813405] mb-2 pl-1">
@@ -642,29 +688,29 @@ export function AddAddressFormView({
           />
         </div>
 
-        {/* Side-by-side: First Name & Last Name */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Full Name & Email Address fields */}
+        <div className="space-y-4">
           <div>
             <label className="block text-[11px] font-extrabold uppercase tracking-wider text-[#813405] mb-2 pl-1">
-              First Name <span className="text-[#D45113]">*</span>
+              Full Name <span className="text-[#D45113]">*</span>
             </label>
             <input
               type="text"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="First Name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Full Name"
               className="w-full h-12 bg-white border border-[#813405]/10 rounded-2xl px-4 text-sm font-semibold text-[#813405] outline-none focus:border-[#D45113]"
             />
           </div>
           <div>
             <label className="block text-[11px] font-extrabold uppercase tracking-wider text-[#813405] mb-2 pl-1">
-              Last Name <span className="text-[#D45113]">*</span>
+              Email Address <span className="text-[#D45113]">*</span>
             </label>
             <input
-              type="text"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Last Name"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email Address"
               className="w-full h-12 bg-white border border-[#813405]/10 rounded-2xl px-4 text-sm font-semibold text-[#813405] outline-none focus:border-[#D45113]"
             />
           </div>
@@ -676,9 +722,7 @@ export function AddAddressFormView({
             <label className="text-[11px] font-extrabold uppercase tracking-wider text-[#813405]">
               Phone number <span className="text-[#D45113]">*</span>
             </label>
-            <span className="text-[#813405]/40 text-[10px] font-extrabold underline cursor-pointer">
-              Why ?
-            </span>
+
           </div>
 
           <div className="flex h-12 bg-white border border-[#813405]/10 rounded-2xl px-4 items-center focus-within:border-[#D45113]">

@@ -275,6 +275,7 @@ export function CustomerManagement() {
   const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
 
   // Custom expandable rows in order history
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -454,14 +455,18 @@ export function CustomerManagement() {
     }
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
-    if (confirm("Are you absolute certain you want to delete this customer record? This cannot be undone.")) {
-      setCustomers(prev => prev.filter(c => c.id !== customerId));
-      if (selectedCustomerId === customerId) {
-        setSelectedCustomerId("cust-1");
-      }
-      toast.success("Customer record permanently removed.");
+  const handleDeleteCustomer = (cust: Customer) => {
+    setDeleteTarget(cust);
+  };
+
+  const confirmDeleteCustomer = () => {
+    if (!deleteTarget) return;
+    setCustomers(prev => prev.filter(c => c.id !== deleteTarget.id));
+    if (selectedCustomerId === deleteTarget.id) {
+      setSelectedCustomerId("cust-1");
     }
+    toast.error("Customer record permanently removed.");
+    setDeleteTarget(null);
   };
 
   // Sparkline generator helper
@@ -816,7 +821,7 @@ export function CustomerManagement() {
                                   <div className="h-px bg-[#4E3E2A]/5 dark:bg-slate-850 my-1" />
                                   <button
                                     onClick={() => {
-                                      handleDeleteCustomer(cust.id);
+                                      handleDeleteCustomer(cust);
                                       setActiveActionsId(null);
                                     }}
                                     className="flex items-center gap-2 w-full px-3.5 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
@@ -1516,6 +1521,79 @@ export function CustomerManagement() {
             </motion.div>
           </>
         )}
+      </AnimatePresence>
+
+      {/* Delete Item Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget ? (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="fixed inset-0 bg-black z-45"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-customer-title"
+              className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md h-fit bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-955/20 shadow-2xl z-50 rounded-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-rose-100/70 dark:border-rose-955/40 bg-rose-50/70 dark:bg-rose-950/10 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-955/40 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <h2 id="delete-customer-title" className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                    Delete Customer
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    This action permanently deletes customer record.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4 text-left">
+                <div className="flex items-center gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-955/40 p-3">
+                  <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-extrabold text-xs shrink-0">
+                    {deleteTarget.avatar}
+                  </div>
+                  <div className="min-w-0 flex flex-col justify-center">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{deleteTarget.name}</span>
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">{deleteTarget.email}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                  Are you sure you want to delete customer "{deleteTarget.name}"? This action cannot be undone.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider rounded-xl transition duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteCustomer}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} /> Delete Customer
+                </button>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
       </AnimatePresence>
 
     </motion.div>

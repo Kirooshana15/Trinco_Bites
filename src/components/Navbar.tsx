@@ -139,10 +139,10 @@ export function Navbar() {
                         <>
                           <div className="px-3 py-2 border-b border-[#F8E7C4] mb-1">
                             <p className="text-[10px] uppercase tracking-wider text-[#8A6A52] font-bold">Account</p>
-                            <p className="text-sm font-bold text-[#3B1700] truncate">{user?.name}</p>
+                            <p className="text-sm font-bold text-[#3B1700] truncate">{user?.email}</p>
                           </div>
                           <Link
-                            to="/track"
+                            to="/orders"
                             onClick={() => setIsOpen(false)}
                             className="flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-[#813405] hover:bg-[#F8E7C4]/50 transition"
                           >
@@ -160,13 +160,6 @@ export function Navbar() {
                         </>
                       ) : (
                         <>
-                          <Link
-                            to="/checkout"
-                            onClick={() => setIsOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest text-[#813405] hover:bg-[#F8E7C4]/50 transition"
-                          >
-                            Checkout
-                          </Link>
                           <Link
                             to="/login"
                             onClick={() => setIsOpen(false)}

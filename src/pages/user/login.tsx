@@ -142,13 +142,13 @@ export function Login() {
 
               {/* Forgot password */}
               <div className="flex justify-end pt-0.5">
-                <a
-                  href="/forgot-password"
+                <Link
+                  to="/forgot-password"
                   className="text-xs font-semibold underline underline-offset-2"
                   style={{ color: C.burnt }}
                 >
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               {/* Submit */}

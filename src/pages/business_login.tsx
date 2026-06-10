@@ -25,8 +25,6 @@ export function AdminLogin() {
         navigate({ to: "/admin/dashboard" });
       } else if (user?.role === "restaurant_admin") {
         navigate({ to: "/restaurant/dashboard" });
-      } else {
-        navigate({ to: "/home" });
       }
     }
   }, [isAuthenticated, user, navigate]);
@@ -170,13 +168,13 @@ export function AdminLogin() {
 
             {/* Forgot password */}
             <div className="flex justify-end">
-              <a
-                href="/forgot-password"
+              <Link
+                to="/forgot-password"
                 className="text-xs font-semibold hover:underline"
                 style={{ color: C.burnt, fontFamily: "var(--font-body)" }}
               >
                 Forgot password ?
-              </a>
+              </Link>
             </div>
 
             {/* Error */}

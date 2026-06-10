@@ -145,14 +145,14 @@ export function RatingSliderFilter({
                       onClick={() =>
                         setMinRating(val === Math.round(minRating) ? 0 : val)
                       }
-                      animate={{ opacity: active ? 1 : 0.28 }}
+                      animate={{ opacity: active ? 1 : 0.65 }}
                       transition={{ duration: 0.3, ease: "easeOut" }}
                       className="flex flex-col items-center gap-1.5 focus:outline-none"
                     >
                       <span
                         className="text-sm leading-none"
                         style={{
-                          color: active ? "#D45113" : "rgba(129, 52, 5, 0.25)",
+                          color: active ? "#D45113" : "rgba(129, 52, 5, 0.55)",
                           transition: "color 0.3s ease",
                         }}
                       >
@@ -161,7 +161,7 @@ export function RatingSliderFilter({
                       <span
                         className="text-[10px] font-bold tabular-nums"
                         style={{
-                          color: active ? "#D45113" : "rgba(129, 52, 5, 0.35)",
+                          color: active ? "#D45113" : "rgba(129, 52, 5, 0.65)",
                           transition: "color 0.3s ease",
                         }}
                       >

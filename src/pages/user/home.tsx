@@ -40,6 +40,7 @@ const extraFilters = [
   "Under 30 min",
   "Highest rated",
   "Rating",
+  "With Offers",
 ] as const;
 
 type ExtraFilter = (typeof extraFilters)[number] | "All";
@@ -141,9 +142,9 @@ function CatChip({
 
       {/* Label */}
       <span
-        className="text-[11px] font-semibold leading-tight text-center"
+        className="text-[11px] font-bold leading-tight text-center"
         style={{
-          color: active ? C.burnt : C.brown,
+          color: active ? C.burnt : "#4E1D02",
           fontFamily: "var(--font-body)",
           maxWidth: 64,
         }}
@@ -157,12 +158,14 @@ function CatChip({
 /* ── Filter Chip (small pill for extra filters row) ─────────────── */
 function FilterChip({
   label,
-  active,
+  isSelected,
+  isExpanded,
   onClick,
   icon,
 }: {
   label: string;
-  active: boolean;
+  isSelected: boolean;
+  isExpanded: boolean;
   onClick: () => void;
   icon?: React.ReactNode;
 }) {
@@ -173,12 +176,16 @@ function FilterChip({
       className="relative flex-shrink-0 px-4 py-2 rounded-full text-xs font-bold tracking-wide overflow-hidden"
       style={{
         fontFamily: "var(--font-body)",
-        color: active ? C.cream : C.brown,
-        border: active ? "none" : "1.5px solid rgba(129,52,5,0.16)",
-        background: active ? "transparent" : "rgba(255,252,245,0.85)",
+        color: isExpanded ? C.cream : (isSelected ? C.burnt : "#4E1D02"),
+        border: isExpanded
+          ? "1.5px solid transparent"
+          : isSelected
+          ? `1.5px solid ${C.burnt}`
+          : "1.5px solid rgba(129,52,5,0.25)",
+        background: isExpanded ? "transparent" : "rgba(255,252,245,0.95)",
       }}
     >
-      {active && (
+      {isExpanded && (
         <motion.span
           layoutId="filter-active-bg"
           className="absolute inset-0 rounded-full"
@@ -243,6 +250,22 @@ export function Home() {
     });
   };
 
+  const handleBannerCtaClick = (bannerId: string) => {
+    if (bannerId === "fallback-1") {
+      navigate({
+        to: "/restaurant/$id",
+        params: { id: "burger-co" },
+        search: { offer: "O-204" }
+      });
+    } else if (bannerId === "fallback-2") {
+      navigate({
+        to: "/restaurant/$id",
+        params: { id: "burger-co" },
+        search: { offer: "O-205" }
+      });
+    }
+  };
+
   const list = useMemo(
     () => {
       let filtered = restaurants.filter(
@@ -289,6 +312,10 @@ export function Home() {
 
         const isRatingActive = selectedFilters.includes("Rating");
         if (isRatingActive && restaurant.rating < 4.5 && minRating === 0) {
+          return false;
+        }
+
+        if (selectedFilters.includes("With Offers") && !restaurant.hasOffer) {
           return false;
         }
 
@@ -449,7 +476,7 @@ export function Home() {
         </section>
 
         {/* OFFERS BANNER CAROUSEL */}
-        {!searchQuery.trim() && <OffersBannerCarousel />}
+        {!searchQuery.trim() && <OffersBannerCarousel onCtaClick={handleBannerCtaClick} />}
 
         {/* 3. FOOD CATEGORIES */}
         <section className="relative z-10 mx-auto max-w-6xl px-4 mt-12 mb-4">
@@ -460,7 +487,7 @@ export function Home() {
           </div>
 
           {/* Emoji category scroll */}
-          <div className="flex gap-8 overflow-x-auto pb-4 px-1" style={{ scrollbarWidth: "none" }}>
+          <div className="flex gap-8 overflow-x-auto pt-3 pb-5 px-2" style={{ scrollbarWidth: "none" }}>
             {categories.map((c) => (
               <CatChip
                 key={c.name}
@@ -475,7 +502,8 @@ export function Home() {
           <div className="mt-5 flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
              <FilterChip
                 label="All Filters"
-                active={selectedFilters.length === 0 && minRating === 0 && dietaryPlan === "All"}
+                isSelected={selectedFilters.length === 0 && minRating === 0 && dietaryPlan === "All"}
+                isExpanded={selectedFilters.length === 0 && minRating === 0 && dietaryPlan === "All"}
                 onClick={() => {
                   toggleFilter("All");
                   setDietaryPlan("All");
@@ -494,14 +522,14 @@ export function Home() {
                     <button
                       key={p.name}
                       onClick={() => setDietaryPlan(dietaryPlan === p.name ? "All" : p.name as any)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer"
                       style={{
                         background: dietaryPlan === p.name ? "rgba(212,81,19,0.12)" : "transparent",
-                        border: dietaryPlan === p.name ? "1px solid rgba(212,81,19,0.4)" : "1px solid transparent",
-                        color: C.brown,
+                        border: dietaryPlan === p.name ? "1px solid rgba(212,81,19,0.4)" : "1px solid rgba(129,52,5,0.15)",
+                        color: dietaryPlan === p.name ? C.burnt : "#4E1D02",
                       }}
                     >
-                      <p.icon size={13} style={{ color: dietaryPlan === p.name ? p.color : "inherit" }} />
+                      <p.icon size={13} style={{ color: dietaryPlan === p.name ? p.color : "#4E1D02" }} />
                       {p.name}
                     </button>
                   ))}
@@ -511,7 +539,8 @@ export function Home() {
                 <FilterChip
                   key={filter}
                   label={filter}
-                  active={selectedFilters.includes(filter) || expandedFilter === filter}
+                  isSelected={selectedFilters.includes(filter)}
+                  isExpanded={expandedFilter === filter}
                   onClick={() => toggleFilter(filter)}
                 />
               ))}
@@ -525,7 +554,7 @@ export function Home() {
         {!searchQuery.trim() && <PopularNearYou />}
 
         {/* 8. 🥘 ALL RESTAURANTS GRID (Filtered) */}
-        <section className={`mx-auto max-w-6xl px-4 pb-24 pt-16 ${searchQuery.trim() ? "" : "mt-20 border-t border-[rgba(129,52,5,0.06)]"}`}>
+        <section id="all-restaurants" className={`mx-auto max-w-6xl px-4 pb-24 pt-16 ${searchQuery.trim() ? "" : "mt-20 border-t border-[rgba(129,52,5,0.06)]"}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
               <h2 className="text-3xl font-black mb-2" style={{ color: C.brown }}>

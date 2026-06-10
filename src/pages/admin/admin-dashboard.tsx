@@ -65,7 +65,7 @@ export function AdminDashboard() {
           <motion.button
             whileTap={{ scale: 0.96 }}
             onClick={handleLogout}
-            className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition border border-[#D45113]/20 hover:bg-[#D45113]/10 text-[#813405]"
+            className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition bg-[#EF4444]/10 hover:bg-[#DC2626] text-[#B91C1C] hover:text-white border border-[#EF4444]/25 hover:border-[#DC2626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626]"
           >
             <LogOut size={16} /> Logout
           </motion.button>

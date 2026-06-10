@@ -2,20 +2,20 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MapPin, Wallet, CreditCard,
-  User, Phone, Mail, ShieldCheck, ChevronRight
+  User, Phone, Mail, ShieldCheck, ChevronRight, MessageSquare
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocationState } from "@/context/LocationContext";
 import type { SavedAddress } from "@/context/LocationContext";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect } from "react";
 import { useOrders } from "@/context/OrderContext";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { isRestaurantOpen } from "@/utils/time";
 import { AddressesListView, AddAddressFormView } from "./location";
+import { getCartItemPrices, formatPrice, VAT_RATE } from "@/utils/pricing";
 
 // ── Card brand definitions ─────────────────────────────────────────────────
 const CARD_BRANDS = [
@@ -65,6 +65,21 @@ function detectCardBrand(number: string): string | null {
   return null;
 }
 
+function getHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Radius of the earth in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c; // Distance in km
+  return d;
+}
+
 export function Checkout() {
   const { findRestaurant } = useRestaurants();
   const { items, total, clear } = useCart();
@@ -78,14 +93,91 @@ export function Checkout() {
   } = useLocationState();
 
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { placeOrder } = useOrders();
   const [pay, setPay] = useState<"cash" | "card">("cash");
+  const [orderType, setOrderType] = useState<"Delivery" | "Self Pickup">("Delivery");
+
+  // Resolve restaurant from cart items
+  const restaurant = useMemo(() => {
+    return items.length > 0 ? findRestaurant(items[0].restaurantId) : undefined;
+  }, [items, findRestaurant]);
+
+  // Compute distance in km
+  const distance = useMemo(() => {
+    if (!selectedLocation || !restaurant) return 1.5; // default fallback
+
+    // Coordinates lookup map for Trincomalee landmarks
+    const coordMap: Record<string, { lat: number; lng: number }> = {
+      "trinco-spice": { lat: 8.5714, lng: 81.2335 },
+      "ocean-pearl": { lat: 8.5835, lng: 81.2185 },
+      "biryani-palace": { lat: 8.5685, lng: 81.2315 },
+      "burger-co": { lat: 8.5752, lng: 81.2285 },
+      
+      // Landmarks / Locations
+      "default-trinco": { lat: 8.5714, lng: 81.2335 },
+      "recent-uppuveli": { lat: 8.5850, lng: 81.2150 },
+      "recent-nilaveli": { lat: 8.6850, lng: 81.1850 },
+      "recent-dockyard": { lat: 8.5680, lng: 81.2350 },
+      "recent-main": { lat: 8.5700, lng: 81.2300 },
+      "suggest-orrs-hill": { lat: 8.5790, lng: 81.2250 },
+      "suggest-mc-road": { lat: 8.5650, lng: 81.2330 }
+    };
+
+    const restId = restaurant.id;
+    const restCoords = coordMap[restId] || coordMap["trinco-spice"];
+    
+    let custLat = (selectedLocation as any).lat || (selectedLocation as any).location?.lat;
+    let custLng = (selectedLocation as any).lng || (selectedLocation as any).location?.lng;
+
+    if (!custLat || !custLng) {
+      const locId = selectedLocation.id;
+      const matched = coordMap[locId];
+      if (matched) {
+        custLat = matched.lat;
+        custLng = matched.lng;
+      } else {
+        const label = (selectedLocation.label || "").toLowerCase();
+        if (label.includes("uppuveli")) {
+          custLat = coordMap["recent-uppuveli"].lat;
+          custLng = coordMap["recent-uppuveli"].lng;
+        } else if (label.includes("nilaveli")) {
+          custLat = coordMap["recent-nilaveli"].lat;
+          custLng = coordMap["recent-nilaveli"].lng;
+        } else if (label.includes("dockyard")) {
+          custLat = coordMap["recent-dockyard"].lat;
+          custLng = coordMap["recent-dockyard"].lng;
+        } else if (label.includes("main")) {
+          custLat = coordMap["recent-main"].lat;
+          custLng = coordMap["recent-main"].lng;
+        } else {
+          // Deterministic mock distance based on label length to show variation
+          const hash = label.length % 5;
+          return 1.2 + hash * 1.5;
+        }
+      }
+    }
+
+    return parseFloat(getHaversineDistance(restCoords.lat, restCoords.lng, custLat, custLng).toFixed(1));
+  }, [selectedLocation, restaurant]);
+
+  // Compute delivery fee
+  const deliveryFee = useMemo(() => {
+    if (orderType !== "Delivery" || !restaurant) return 0;
+    
+    const RATE_PER_KM = 50;
+    const calculated = Math.round(distance * RATE_PER_KM);
+    return calculated;
+  }, [orderType, restaurant, distance]);
 
   // Bottom drawer address selector states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerStep, setDrawerStep] = useState<"list" | "form">("list");
   const [editingAddress, setEditingAddress] = useState<SavedAddress | null>(null);
+
+  const [loc, setLoc] = useState("");
+  const [cardNum, setCardNum] = useState("");
+  const [contact, setContact] = useState({ name: "", phone: "", email: "" });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -93,26 +185,36 @@ export function Checkout() {
     }
   }, [isAuthenticated, navigate]);
 
-  if (!isAuthenticated) return null;
-  const [loc, setLoc] = useState("");
-  const [cardNum, setCardNum] = useState("");
-  const [contact, setContact] = useState({ name: "", phone: "", email: "" });
-
-  // Synchronize contact info with selected address
+  // Synchronize contact info with selected address or fall back to user profile
   useEffect(() => {
     if (selectedLocation) {
-      const addressLabel = (selectedLocation as SavedAddress).firstName
-        ? `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}`.trim()
-        : selectedLocation.label;
+      const isSaved = (selectedLocation as SavedAddress).fullName || (selectedLocation as SavedAddress).firstName;
+      
+      const addressName = isSaved
+        ? ((selectedLocation as SavedAddress).fullName || `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}`.trim())
+        : (user?.name || selectedLocation.label);
+
+      let cleanUserPhone = "";
+      if (user?.phone) {
+        let clean = user.phone.replace(/\D/g, "");
+        if (clean.startsWith("94")) {
+          clean = clean.substring(2);
+        }
+        clean = clean.replace(/^0/, "");
+        cleanUserPhone = clean;
+      }
 
       setContact((prev) => ({
         ...prev,
-        name: addressLabel || prev.name,
-        phone: (selectedLocation as SavedAddress).phoneNumber || prev.phone,
+        name: addressName || prev.name,
+        phone: (selectedLocation as SavedAddress).phoneNumber || cleanUserPhone || prev.phone,
+        email: (selectedLocation as SavedAddress).email || user?.email || prev.email,
       }));
       setLoc(selectedLocation.address || selectedLocation.label);
     }
-  }, [selectedLocation]);
+  }, [selectedLocation, user]);
+
+  if (!isAuthenticated) return null;
 
   const hasClosedRestaurantItems = items.some((item) => {
     const restaurant = findRestaurant(item.restaurantId);
@@ -130,17 +232,24 @@ export function Checkout() {
 
   const place = () => {
     if (hasClosedRestaurantItems) return;
+    const restaurantId = items.length > 0 ? items[0].restaurantId : "";
     const restaurantName =
       items.length > 0
         ? findRestaurant(items[0].restaurantId)?.name ?? "Trinco Bites"
         : "Trinco Bites";
 
+    const vatAmount = Math.round(total * VAT_RATE);
+    const grandTotal = total + deliveryFee + vatAmount;
+
     placeOrder({
+      restaurantId,
       restaurantName,
       items,
+      orderType,
       subtotal: total,
-      deliveryFee: 250,
-      total: total + 250,
+      tax: vatAmount,
+      deliveryFee,
+      total: grandTotal,
       paymentMethod: pay,
       contact,
       deliveryAddress: loc || selectedLocation.address || selectedLocation.label,
@@ -222,8 +331,15 @@ export function Checkout() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="font-extrabold text-[#813405] text-sm">
-                      {(selectedLocation as SavedAddress).firstName ? `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}` : selectedLocation.label}
+                      {(selectedLocation as SavedAddress).fullName || (selectedLocation as SavedAddress).firstName
+                        ? ((selectedLocation as SavedAddress).fullName || `${(selectedLocation as SavedAddress).firstName} ${(selectedLocation as SavedAddress).lastName || ""}`.trim())
+                        : selectedLocation.label}
                     </h4>
+                    {(selectedLocation as SavedAddress).email && (
+                      <span className="text-[#813405]/60 text-xs font-semibold">
+                        ({(selectedLocation as SavedAddress).email})
+                      </span>
+                    )}
                     {(selectedLocation as SavedAddress).phoneNumber && (
                       <span className="text-[#813405]/50 text-xs font-bold">
                         +94 {(selectedLocation as SavedAddress).phoneNumber}
@@ -239,6 +355,58 @@ export function Checkout() {
                 </div>
               </div>
               <ChevronRight className="h-5 w-5 text-[#813405]/30 group-hover:text-[#D45113] transition shrink-0 ml-3" />
+            </div>
+          </Section>
+
+          {/* Order Type — Delivery vs Self Pickup */}
+          <Section title="Order Type" icon={MapPin}>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setOrderType("Delivery")}
+                className="p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden transition-all duration-200"
+                style={{
+                  border: orderType === "Delivery" ? "2px solid #D45113" : "2px solid rgba(248,221,164,0.35)",
+                  background: orderType === "Delivery"
+                    ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
+                    : "#ffffff",
+                  boxShadow: orderType === "Delivery" ? "0 4px 16px rgba(212,81,19,0.12)" : "none",
+                }}
+              >
+                {orderType === "Delivery" && <span className="absolute top-2 right-2 text-[10px]">✅</span>}
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
+                  style={{ background: orderType === "Delivery" ? "linear-gradient(135deg,#D45113,#813405)" : "rgba(248,221,164,0.3)" }}>
+                  <span>🛵</span>
+                </div>
+                <span className="text-sm font-black leading-snug" style={{ color: orderType === "Delivery" ? "#813405" : "#b0a090" }}>
+                  Delivery
+                </span>
+                <span className="text-[10px] font-semibold" style={{ color: orderType === "Delivery" ? "#D45113" : "#c0b0a0" }}>
+                  + Rs. {deliveryFee} delivery fee ({distance} km)
+                </span>
+              </button>
+              <button
+                onClick={() => setOrderType("Self Pickup")}
+                className="p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden transition-all duration-200"
+                style={{
+                  border: orderType === "Self Pickup" ? "2px solid #D45113" : "2px solid rgba(248,221,164,0.35)",
+                  background: orderType === "Self Pickup"
+                    ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
+                    : "#ffffff",
+                  boxShadow: orderType === "Self Pickup" ? "0 4px 16px rgba(212,81,19,0.12)" : "none",
+                }}
+              >
+                {orderType === "Self Pickup" && <span className="absolute top-2 right-2 text-[10px]">✅</span>}
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
+                  style={{ background: orderType === "Self Pickup" ? "linear-gradient(135deg,#D45113,#813405)" : "rgba(248,221,164,0.3)" }}>
+                  <span>🏃</span>
+                </div>
+                <span className="text-sm font-black leading-snug" style={{ color: orderType === "Self Pickup" ? "#813405" : "#b0a090" }}>
+                  Self Pickup
+                </span>
+                <span className="text-[10px] font-semibold" style={{ color: orderType === "Self Pickup" ? "#D45113" : "#c0b0a0" }}>
+                  No delivery fee
+                </span>
+              </button>
             </div>
           </Section>
 
@@ -393,22 +561,87 @@ export function Checkout() {
                 This restaurant is currently closed. You cannot place this order right now.
               </div>
             )}
+            {/* Ordered Items List */}
+            <div className="mb-5 space-y-3 max-h-60 overflow-y-auto pr-1">
+              {items.map((it) => {
+                const prices = getCartItemPrices(it);
+                return (
+                  <div key={it.id} className="text-xs space-y-1 bg-white/50 border border-[#F8DDA4]/25 p-3 rounded-xl">
+                    <div className="flex justify-between font-bold text-[#813405]">
+                      <span className="truncate max-w-[70%] flex items-center gap-1 flex-wrap">
+                        {it.name}
+                        {it.selectedSize && (
+                          <span className="text-[10px] font-black text-orange-650 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                            {it.selectedSize}
+                          </span>
+                        )}
+                        {it.appliedOffer && (
+                          <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-0.5">
+                            🎁 {it.appliedOffer.discountBadge}
+                          </span>
+                        )}
+                        <span className="ml-1 text-slate-400 text-[10px]">x{it.quantity}</span>
+                      </span>
+                      <span>{formatPrice(prices.itemTotal)}</span>
+                    </div>
+                    
+                    {it.appliedOffer?.id === "O-205" && (
+                      <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/60 border border-emerald-100/50 flex items-center justify-between text-[11px] text-emerald-850 font-bold">
+                        <span className="flex items-center gap-1">
+                          🎁 {it.quantity}x {it.name} ({it.selectedSize || "Regular"}) [FREE BOGO]
+                        </span>
+                        <span className="font-black">Rs 0</span>
+                      </div>
+                    )}
+                    
+                    <div className="text-[11px] text-[#813405]/70 pl-2 space-y-0.5 border-l border-[#F8DDA4]">
+                      <div className="flex justify-between">
+                        <span>Base Price ({it.quantity}x {formatPrice(prices.basePrice)})</span>
+                        <span>{formatPrice(prices.totalBasePrice)}</span>
+                      </div>
+                      
+                      {it.selectedExtras && it.selectedExtras.length > 0 && (
+                        <>
+                          {it.selectedExtras.map((extra, idx) => (
+                            <div key={idx} className="flex justify-between text-[#813405]/50 pl-1.5">
+                              <span>+ {extra.name} ({it.quantity}x {formatPrice(extra.price)})</span>
+                              <span>{formatPrice(extra.price * it.quantity)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between font-bold text-[#813405]/75 pl-1.5 pt-0.5">
+                            <span>Add-ons Total</span>
+                            <span>{formatPrice(prices.totalExtrasPrice)}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="flex justify-between items-center mb-3">
               <span className="text-slate-400 text-sm">Subtotal</span>
-              <span className="font-bold text-[#813405]">Rs {total.toLocaleString()}</span>
+              <span className="font-bold text-[#813405]">{formatPrice(total)}</span>
             </div>
+            {orderType === "Delivery" && (
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-slate-400 text-sm">🛵 Delivery Fee (Rs. 50/km · {distance} km)</span>
+                <span className="font-bold text-[#813405]">{formatPrice(deliveryFee)}</span>
+              </div>
+            )}
             <div className="flex justify-between items-center mb-4">
-              <span className="text-slate-400 text-sm">🛵 Delivery Fee</span>
-              <span className="font-bold text-[#813405]">Rs 250</span>
+              <span className="text-slate-400 text-sm">🇱🇰 VAT (18%)</span>
+              <span className="font-bold text-[#813405]">{formatPrice(Math.round(total * VAT_RATE))}</span>
             </div>
             <div
-              className="h-px mb-4"
+              className="h-px mb-4 mt-1"
               style={{ background: "linear-gradient(to right, transparent, #F8DDA4, transparent)" }}
             />
             <div className="flex justify-between font-black text-xl text-[#813405] mb-7">
               <span style={{ fontFamily: "var(--font-heading)" }}>Total</span>
               <span style={{ fontFamily: "var(--font-heading)" }}>
-                Rs {(total + 250).toLocaleString()}
+                {formatPrice(total + deliveryFee + Math.round(total * VAT_RATE))}
               </span>
             </div>
 

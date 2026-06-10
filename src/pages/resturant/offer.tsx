@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Plus, Copy, Trash2, RefreshCw, TrendingUp, DollarSign,
@@ -6,11 +6,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRestaurants, type Offer } from "@/context/RestaurantContext";
+import { useAuth } from "@/context/AuthContext";
 import offer1 from "@/assets/offer1.jpg";
 import offer2 from "@/assets/offer2.png";
 
 export function CouponsOffers() {
-  const { offers, setOffers } = useRestaurants();
+  const { offers, setOffers, restaurants } = useRestaurants();
+  const { user } = useAuth();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
   const [searchTerm, setSearchTerm] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -20,6 +23,7 @@ export function CouponsOffers() {
   // Modal Creation Form States
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Offer | null>(null);
 
   // Form Fields - Offers
   const [formOfferTitle, setFormOfferTitle] = useState("");
@@ -33,6 +37,7 @@ export function CouponsOffers() {
   const [formOfferTimeLabel, setFormOfferTimeLabel] = useState("Weekend Combo");
   const [formOfferEmoji, setFormOfferEmoji] = useState("🍕");
   const [formOfferType, setFormOfferType] = useState<Offer["type"]>("Discount");
+  const [formOfferStatus, setFormOfferStatus] = useState<Offer["status"]>("Active");
   const [formOfferBannerImage, setFormOfferBannerImage] = useState<string>("");
   const [formOfferTargetCustomer, setFormOfferTargetCustomer] = useState<Offer["targetCustomer"]>("All");
   const [formOfferChannel, setFormOfferChannel] = useState<Offer["channel"]>("All");
@@ -46,24 +51,31 @@ export function CouponsOffers() {
     }, 700);
   };
 
-  // Helper function to dynamically calculate status for dashboard list
+  // Helper function to resolve the dashboard status tab.
   const getAutomaticOfferStatus = (offer: Offer) => {
-    if (offer.status === "Draft") return "Paused";
+    if (offer.status === "Draft") return "Draft";
 
     const now = new Date();
-    const todayStr = now.getFullYear() + "-" +
-      String(now.getMonth() + 1).padStart(2, "0") + "-" +
+    
+    // Format dates: YYYY-MM-DD
+    const todayStr = now.getFullYear() + "-" + 
+      String(now.getMonth() + 1).padStart(2, "0") + "-" + 
       String(now.getDate()).padStart(2, "0");
+      
+    const start = offer.startDate;
+    const end = offer.endDate;
 
-    if (todayStr > offer.endDate) return "Expired";
-    if (todayStr < offer.startDate) return "Scheduled";
+    if (todayStr > end) return "Expired";
+    if (todayStr < start) return "Scheduled";
 
+    // Check active day of week (e.g. "Mon", "Tue", etc.)
     const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const currentDay = daysMap[now.getDay()];
     if (!offer.activeDays.includes(currentDay)) {
-      return "Scheduled";
+      return "Scheduled"; // active overall, but not today
     }
 
+    // Check active times if specified
     if (offer.startTime && offer.endTime) {
       const parseTimeToMinutes = (t: string) => {
         const [time, period] = t.split(" ");
@@ -79,9 +91,10 @@ export function CouponsOffers() {
 
       if (startMinutes < endMinutes) {
         if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
-          return "Scheduled";
+          return "Scheduled"; // active today, but not right now
         }
       } else {
+        // Handles overnight ranges (e.g. 10 PM to 1 AM)
         if (currentMinutes < startMinutes && currentMinutes > endMinutes) {
           return "Scheduled";
         }
@@ -92,22 +105,25 @@ export function CouponsOffers() {
   };
 
   // Offer CRUD Actions
-  const handleToggleOfferStatus = (id: string) => {
+  const handleUpdateOfferStatus = (id: string, status: Offer["status"]) => {
     setOffers(prev => prev.map(o => {
       if (o.id === id) {
-        const nextStatus: Offer["status"] = o.status === "Active" ? "Draft" : "Active";
-        toast.info(`Offer "${o.title}" set to ${nextStatus === "Active" ? "Active" : "Draft (Paused)"}`);
-        return { ...o, status: nextStatus };
+        toast.info(`Offer "${o.title}" moved to ${status}`);
+        return { ...o, status };
       }
       return o;
     }));
   };
 
-  const handleDeleteOffer = (id: string, title: string) => {
-    if (window.confirm(`Are you sure you want to delete offer "${title}"?`)) {
-      setOffers(prev => prev.filter(o => o.id !== id));
-      toast.error(`Offer "${title}" deleted successfully`);
-    }
+  const handleDeleteOffer = (offer: Offer) => {
+    setDeleteTarget(offer);
+  };
+
+  const confirmDeleteOffer = () => {
+    if (!deleteTarget) return;
+    setOffers(prev => prev.filter(o => o.id !== deleteTarget.id));
+    toast.error(`Offer "${deleteTarget.title}" deleted successfully`);
+    setDeleteTarget(null);
   };
 
   const handleDuplicateOffer = (offer: Offer) => {
@@ -134,6 +150,7 @@ export function CouponsOffers() {
     setFormOfferTimeLabel(offer.timeLabel || "");
     setFormOfferEmoji(offer.emoji);
     setFormOfferType(offer.type || "Discount");
+    setFormOfferStatus(offer.status || "Active");
     setFormOfferBannerImage(offer.bannerImage || "");
     setFormOfferTargetCustomer(offer.targetCustomer || "All");
     setFormOfferChannel(offer.channel || "All");
@@ -154,12 +171,21 @@ export function CouponsOffers() {
     setFormOfferTimeLabel("Weekend Combo");
     setFormOfferEmoji("🌶️");
     setFormOfferType("Discount");
+    setFormOfferStatus(offerStatusFilter);
     setFormOfferBannerImage("");
     setFormOfferTargetCustomer("All");
     setFormOfferChannel("All");
     setFormOfferMinOrder(0);
     setIsOfferModalOpen(true);
   };
+
+  // Open Create Offer modal if URL hash is #create or #create-offer
+  useEffect(() => {
+    if (window.location.hash === "#create" || window.location.hash === "#create-offer") {
+      openCreateOfferModal();
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
 
   const handleSaveOffer = (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,6 +215,7 @@ export function CouponsOffers() {
             startTime: formOfferStartTime,
             endTime: formOfferEndTime,
             timeLabel: formOfferTimeLabel,
+            status: formOfferStatus,
             emoji: formOfferEmoji,
             type: formOfferType,
             bannerImage: formOfferBannerImage,
@@ -203,7 +230,7 @@ export function CouponsOffers() {
     } else {
       const newOffer: Offer = {
         id: `O-${Date.now()}`,
-        restaurantId: "trinco-spice",
+        restaurantId: activeRestaurant.id,
         title: formOfferTitle,
         description: formOfferDesc,
         discountBadge: formOfferBadge,
@@ -213,7 +240,7 @@ export function CouponsOffers() {
         startTime: formOfferStartTime,
         endTime: formOfferEndTime,
         timeLabel: formOfferTimeLabel,
-        status: "Active",
+        status: formOfferStatus,
         emoji: formOfferEmoji,
         type: formOfferType,
         bannerImage: formOfferBannerImage,
@@ -284,8 +311,13 @@ export function CouponsOffers() {
     toast.success("AI generated a perfect promotion for your restaurant!");
   };
 
+  const restaurantOffers = useMemo(
+    () => offers.filter((offer) => offer.restaurantId === activeRestaurant.id),
+    [offers, activeRestaurant.id]
+  );
+
   // Dynamic filtering for search
-  const filteredOffers = offers
+  const filteredOffers = restaurantOffers
     .filter(o => {
       const computedStatus = getAutomaticOfferStatus(o);
       return computedStatus === offerStatusFilter;
@@ -350,7 +382,7 @@ export function CouponsOffers() {
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Active Offers</span>
               <span className="text-2xl font-bold text-slate-800 dark:text-white mt-1 tracking-tight group-hover:text-emerald-500 dark:group-hover:text-emerald-400 transition-colors">
-                {offers.filter(o => getAutomaticOfferStatus(o) === "Active").length} Offers
+                {restaurantOffers.filter(o => getAutomaticOfferStatus(o) === "Active").length} Offers
               </span>
             </div>
             <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 shrink-0">
@@ -452,7 +484,7 @@ export function CouponsOffers() {
             >
               <span>{tab} Offers</span>
               <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${offerStatusFilter === tab ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                }`}>{offers.filter(o => getAutomaticOfferStatus(o) === tab).length}</span>
+                }`}>{restaurantOffers.filter(o => getAutomaticOfferStatus(o) === tab).length}</span>
             </button>
           ))}
         </div>
@@ -506,9 +538,14 @@ export function CouponsOffers() {
                       </div>
                     </div>
 
-                    <span className="text-[9.5px] font-extrabold uppercase bg-[#71A066] text-white shadow-xs px-2 py-0.5 rounded-md tracking-wider shrink-0">
-                      {offer.discountBadge}
-                    </span>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-[8px] font-black uppercase bg-white/70 dark:bg-slate-900/70 text-slate-500 dark:text-slate-300 border border-slate-200/70 dark:border-slate-800 px-2 py-0.5 rounded-md tracking-wider">
+                        {computedStatus}
+                      </span>
+                      <span className="text-[9.5px] font-extrabold uppercase bg-[#71A066] text-white shadow-xs px-2 py-0.5 rounded-md tracking-wider">
+                        {offer.discountBadge}
+                      </span>
+                    </div>
                   </div>
 
                   <p className="text-[11px] text-slate-650 dark:text-slate-450 leading-relaxed font-semibold line-clamp-3 pt-1">
@@ -540,13 +577,24 @@ export function CouponsOffers() {
                         <Copy size={11} />
                       </button>
                       <button
-                        onClick={() => handleDeleteOffer(offer.id, offer.title)}
+                        onClick={() => handleDeleteOffer(offer)}
                         className="p-1.5 rounded-lg border border-rose-100 hover:bg-rose-50 dark:border-rose-955/20 bg-white dark:bg-slate-900 text-rose-500 hover:text-rose-600 shadow-xs transition cursor-pointer"
                         title="Delete offer"
                       >
                         <Trash2 size={11} />
                       </button>
                     </div>
+                    <select
+                      value={offer.status}
+                      onChange={(e) => handleUpdateOfferStatus(offer.id, e.target.value as Offer["status"])}
+                      className="max-w-[118px] px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-[9px] font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-[#71A066] cursor-pointer"
+                      title="Change offer status"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Scheduled">Scheduled</option>
+                      <option value="Draft">Draft</option>
+                      <option value="Expired">Expired</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -651,24 +699,7 @@ export function CouponsOffers() {
                       </div>
                     )}
 
-                    {/* Pre-sets template picker */}
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase">Or quick template:</span>
-                      <button
-                        type="button"
-                        onClick={() => setFormOfferBannerImage(offer1)}
-                        className="text-[9px] font-black uppercase text-[#71A066] hover:bg-[#71A066]/10 px-2 py-0.5 border border-[#71A066]/20 rounded-md transition"
-                      >
-                        Food Banner 1
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormOfferBannerImage(offer2)}
-                        className="text-[9px] font-black uppercase text-[#71A066] hover:bg-[#71A066]/10 px-2 py-0.5 border border-[#71A066]/20 rounded-md transition"
-                      >
-                        Food Banner 2
-                      </button>
-                    </div>
+
                   </div>
 
                   {/* Basic Details */}
@@ -692,6 +723,28 @@ export function CouponsOffers() {
                                 }`}
                             >
                               <span className="text-[10px] font-bold">{label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-550">Offer Status</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {(["Active", "Scheduled", "Draft", "Expired"] as const).map((status) => {
+                          const isSelected = formOfferStatus === status;
+                          return (
+                            <button
+                              key={status}
+                              type="button"
+                              onClick={() => setFormOfferStatus(status)}
+                              className={`p-2 py-2.5 rounded-xl border text-center transition flex items-center justify-center cursor-pointer ${isSelected
+                                ? "bg-[#71A066]/10 border-2 border-[#71A066] text-[#71A066] font-serif"
+                                : "border-slate-200 dark:border-slate-800 text-slate-650 dark:text-slate-400 hover:bg-slate-55 dark:hover:bg-slate-850"
+                                }`}
+                            >
+                              <span className="text-[10px] font-bold">{status}</span>
                             </button>
                           );
                         })}
@@ -912,7 +965,7 @@ export function CouponsOffers() {
 
                       {/* Fake header info */}
                       <div className="text-left space-y-1">
-                        <span className="text-[7px] font-black uppercase text-[#D45113] tracking-widest block bg-[#D45113]/10 w-fit px-1.5 py-0.5 rounded font-serif">Trinco Spice House</span>
+                        <span className="text-[7px] font-black uppercase text-[#D45113] tracking-widest block bg-[#D45113]/10 w-fit px-1.5 py-0.5 rounded font-serif">{activeRestaurant.name}</span>
                         <h5 className="text-[10px] font-black leading-tight text-slate-800 dark:text-white font-serif">Active Offers Preview</h5>
                       </div>
 
@@ -987,6 +1040,79 @@ export function CouponsOffers() {
             </motion.div>
           </>
         )}
+      </AnimatePresence>
+
+      {/* Delete Item Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget ? (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="fixed inset-0 bg-black z-45"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-modal-title"
+              className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md h-fit bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-955/20 shadow-2xl z-50 rounded-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-rose-100/70 dark:border-rose-955/40 bg-rose-50/70 dark:bg-rose-950/10 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-955/40 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <h2 id="delete-modal-title" className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                    Delete Offer
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    This action removes the offer from storefront page.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="flex gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3">
+                  <div className="h-14 w-14 rounded-xl overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shrink-0 flex items-center justify-center text-3xl">
+                    {deleteTarget.emoji}
+                  </div>
+                  <div className="min-w-0 flex flex-col justify-center text-left">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{deleteTarget.title}</span>
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">{deleteTarget.discountBadge}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300 text-left">
+                  Are you sure you want to delete this offer? You will need to add it again manually if you change your mind.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider rounded-xl transition duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteOffer}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition duration-200 cursor-pointer shadow-sm shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} /> Delete Offer
+                </button>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

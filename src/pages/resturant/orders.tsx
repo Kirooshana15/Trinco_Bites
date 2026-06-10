@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingBag, Clock,
@@ -8,6 +9,8 @@ import {
   ArrowUpRight
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { getCartItemPrices, formatPrice, VAT_RATE } from "@/utils/pricing";
 
 // High-fidelity Order Item Type
 interface OrderItem {
@@ -15,6 +18,11 @@ interface OrderItem {
   name: string;
   price: number;
   quantity: number;
+  selectedSize?: string;
+  selectedExtras?: { name: string; price: number }[];
+  appliedOffer?: any;
+  customPrice?: number;
+  instructions?: string;
 }
 
 // Order Status Type
@@ -30,13 +38,16 @@ interface OrderCancellation {
 // High-fidelity Order Structure
 interface Order {
   id: string;
+  restaurantId?: string;
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
+  orderType: "Delivery" | "Self Pickup";
   items: OrderItem[];
   paymentMethod: "Cash on Delivery" | "Card Payment";
   subtotal: number;
   tax: number;
+  deliveryFee: number;
   total: number;
   orderDate: string;
   status: OrderStatus;
@@ -45,21 +56,127 @@ interface Order {
   cancellation?: OrderCancellation;
 }
 
+const syncOrderStatusToCustomerDb = (
+  orderId: string,
+  restaurantStatus: OrderStatus,
+  cancellation?: { reason: string; refundInitiated: boolean }
+) => {
+  const saved = localStorage.getItem("trinco_orders");
+  if (!saved) return;
+  try {
+    const customerOrders = JSON.parse(saved);
+    const updated = customerOrders.map((co: any) => {
+      if (co.id === orderId) {
+        let mappedStatus: "Order Received" | "Preparing" | "Out for Delivery" | "Delivered" | "Cancelled" = "Order Received";
+        if (restaurantStatus === "Accepted" || restaurantStatus === "Preparing") {
+          mappedStatus = "Preparing";
+        } else if (restaurantStatus === "Completed") {
+          // No separate delivery man — restaurant marking Done = food is delivered
+          mappedStatus = "Delivered";
+        } else if (restaurantStatus === "Cancelled") {
+          mappedStatus = "Cancelled";
+        } else {
+          mappedStatus = "Order Received";
+        }
+        return {
+          ...co,
+          status: mappedStatus,
+          ...(cancellation && {
+            cancellationReason: cancellation.reason,
+            refundInitiated: cancellation.refundInitiated,
+          }),
+        };
+      }
+      return co;
+    });
+    localStorage.setItem("trinco_orders", JSON.stringify(updated));
+    // Dispatch storage event for cross-tab sync (customer tracking page)
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "trinco_orders",
+      newValue: JSON.stringify(updated),
+      storageArea: localStorage,
+    }));
+  } catch (err) {
+    console.error("Error syncing order status", err);
+  }
+};
+
+function mapCustomerOrderToRestaurantOrder(co: any): Order {
+  const timeStr = new Date(co.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  
+  let mappedStatus: OrderStatus = "Pending";
+  if (co.status === "Delivered" || co.status === "Out for Delivery") mappedStatus = "Completed";
+  else if (co.status === "Cancelled") mappedStatus = "Cancelled";
+  else if (co.status === "Preparing") mappedStatus = "Preparing";
+  else mappedStatus = "Pending";
+
+  const timeline = [
+    { status: "Pending" as OrderStatus, time: timeStr }
+  ];
+  if (co.status === "Preparing") {
+    timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
+    timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
+  }
+  if (co.status === "Delivered" || co.status === "Out for Delivery") {
+    timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
+    timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
+    timeline.push({ status: "Completed" as OrderStatus, time: timeStr });
+  }
+  if (co.status === "Cancelled") {
+    timeline.push({ status: "Cancelled" as OrderStatus, time: timeStr });
+  }
+
+  return {
+    id: co.id,
+    restaurantId: co.restaurantId,
+    customerName: co.contact.name,
+    customerPhone: co.contact.phone,
+    deliveryAddress: co.deliveryAddress,
+    orderType: (co.orderType ?? "Delivery") as "Delivery" | "Self Pickup",
+    items: co.items.map((it: any) => ({
+      id: it.id || it.food?.id || "unknown",
+      name: it.name || it.food?.name || "Food Item",
+      price: it.price || 0,
+      quantity: it.quantity,
+      selectedSize: it.selectedSize,
+      selectedExtras: it.selectedExtras,
+      appliedOffer: it.appliedOffer,
+      customPrice: it.customPrice,
+      instructions: it.instructions || undefined
+    })),
+    paymentMethod: co.paymentMethod === "card" ? "Card Payment" : "Cash on Delivery",
+    subtotal: co.subtotal,
+    tax: co.tax ?? Math.round(co.subtotal * VAT_RATE),
+    deliveryFee: co.deliveryFee ?? (co.orderType === "Delivery" ? 250 : 0),
+    total: co.subtotal + (co.deliveryFee ?? (co.orderType === "Delivery" ? 250 : 0)) + (co.tax ?? Math.round(co.subtotal * VAT_RATE)),
+    orderDate: `Today, ${timeStr}`,
+    status: mappedStatus,
+    timeline: timeline,
+    notes: co.notes || undefined
+  };
+}
+
 export function OrderManagement() {
+  const { user } = useAuth();
+  const routerState = useRouterState();
+  const routeOrderId = new URLSearchParams(routerState.location.searchStr).get("orderId");
   const [orders, setOrders] = useState<Order[]>([
     {
       id: "TB-8942",
+      restaurantId: "trinco-spice",
       customerName: "Nithya R.",
       customerPhone: "077 123 4567",
       deliveryAddress: "142 Dockyard Rd, Trincomalee",
+      orderType: "Delivery" as const,
       items: [
         { id: "sh-br1", name: "Chicken Biryani", price: 1050, quantity: 1 },
         { id: "sh-mj1", name: "Lime Mojito", price: 450, quantity: 1 }
       ],
       paymentMethod: "Cash on Delivery",
-      subtotal: 1363.64,
-      tax: 136.36,
-      total: 1500,
+      subtotal: 1500,
+      tax: 270,
+      deliveryFee: 250,
+      total: 2020,
       orderDate: "Today, 12:15 PM",
       status: "Completed",
       notes: "Deliver near the beach resort gate.",
@@ -72,16 +189,19 @@ export function OrderManagement() {
     },
     {
       id: "TB-8941",
+      restaurantId: "trinco-spice",
       customerName: "Daniel J.",
       customerPhone: "071 987 6543",
       deliveryAddress: "45 Uppuveli Beach Rd, Trincomalee",
+      orderType: "Delivery" as const,
       items: [
         { id: "sh-kt1", name: "Chicken Kottu", price: 850, quantity: 2 }
       ],
       paymentMethod: "Card Payment",
-      subtotal: 1545.45,
-      tax: 154.55,
-      total: 1700,
+      subtotal: 1700,
+      tax: 306,
+      deliveryFee: 250,
+      total: 2256,
       orderDate: "Today, 12:02 PM",
       status: "Preparing",
       notes: "Extra spicy and cheese if possible.",
@@ -93,16 +213,19 @@ export function OrderManagement() {
     },
     {
       id: "TB-8940",
+      restaurantId: "ocean-pearl",
       customerName: "Archana S.",
       customerPhone: "072 456 7890",
       deliveryAddress: "Post Office Junction, Trincomalee Town",
+      orderType: "Self Pickup" as const,
       items: [
         { id: "sh-fr5", name: "Seafood Fried Rice", price: 1200, quantity: 1 }
       ],
       paymentMethod: "Card Payment",
-      subtotal: 1090.91,
-      tax: 109.09,
-      total: 1200,
+      subtotal: 1200,
+      tax: 216,
+      deliveryFee: 0,
+      total: 1416,
       orderDate: "Today, 11:48 AM",
       status: "Pending",
       timeline: [
@@ -111,17 +234,20 @@ export function OrderManagement() {
     },
     {
       id: "TB-8939",
+      restaurantId: "biryani-palace",
       customerName: "Ramesh K.",
       customerPhone: "077 555 1234",
       deliveryAddress: "Alles Garden, Nilaveli Rd, Trincomalee",
+      orderType: "Delivery" as const,
       items: [
         { id: "sh-fr6", name: "Veg Fried Rice", price: 700, quantity: 1 },
         { id: "sh-mj5", name: "Apple Mojito", price: 480, quantity: 1 }
       ],
       paymentMethod: "Cash on Delivery",
-      subtotal: 1072.73,
-      tax: 107.27,
-      total: 1180,
+      subtotal: 1180,
+      tax: 212,
+      deliveryFee: 250,
+      total: 1642,
       orderDate: "Today, 10:15 AM",
       status: "Completed",
       notes: "Contact upon arrival.",
@@ -134,16 +260,19 @@ export function OrderManagement() {
     },
     {
       id: "TB-8938",
+      restaurantId: "burger-co",
       customerName: "Shamil M.",
       customerPhone: "076 777 8888",
       deliveryAddress: "Inner Harbour Road, Trincomalee",
+      orderType: "Delivery" as const,
       items: [
         { id: "f7", name: "Double Cheeseburger", price: 1250, quantity: 1 }
       ],
       paymentMethod: "Card Payment",
-      subtotal: 1136.36,
-      tax: 113.64,
-      total: 1250,
+      subtotal: 1250,
+      tax: 225,
+      deliveryFee: 250,
+      total: 1725,
       orderDate: "Today, 09:30 AM",
       status: "Cancelled",
       notes: "Cancelled by customer before acceptance.",
@@ -159,17 +288,20 @@ export function OrderManagement() {
     },
     {
       id: "TB-8937",
+      restaurantId: "trinco-spice",
       customerName: "Priyantha D.",
       customerPhone: "078 888 9999",
       deliveryAddress: "Koneswaram Temple Road, Trincomalee",
+      orderType: "Delivery" as const,
       items: [
         { id: "sh-kt3", name: "Mutton Kottu", price: 1250, quantity: 1 },
         { id: "sh-mj2", name: "Passion Mojito", price: 550, quantity: 1 }
       ],
       paymentMethod: "Cash on Delivery",
-      subtotal: 1636.36,
-      tax: 163.64,
-      total: 1800,
+      subtotal: 1800,
+      tax: 324,
+      deliveryFee: 250,
+      total: 2374,
       orderDate: "Yesterday, 08:45 PM",
       status: "Completed",
       timeline: [
@@ -181,17 +313,20 @@ export function OrderManagement() {
     },
     {
       id: "TB-8936",
+      restaurantId: "ocean-pearl",
       customerName: "Thilini W.",
       customerPhone: "077 444 3333",
       deliveryAddress: "12 Beach Loop Rd, Uppuveli",
+      orderType: "Self Pickup" as const,
       items: [
         { id: "sh-fr4", name: "Prawn Fried Rice", price: 1350, quantity: 1 },
         { id: "sh-mj2", name: "Passion Mojito", price: 550, quantity: 1 }
       ],
       paymentMethod: "Card Payment",
-      subtotal: 1727.27,
-      tax: 172.73,
-      total: 1900,
+      subtotal: 1900,
+      tax: 342,
+      deliveryFee: 0,
+      total: 2242,
       orderDate: "Yesterday, 07:15 PM",
       status: "Accepted",
       timeline: [
@@ -201,17 +336,20 @@ export function OrderManagement() {
     },
     {
       id: "TB-8935",
+      restaurantId: "biryani-palace",
       customerName: "Kirushanth R.",
       customerPhone: "076 111 2222",
       deliveryAddress: "Green Road, Trincomalee Town",
+      orderType: "Delivery" as const,
       items: [
         { id: "sh-kt5", name: "Seafood Kottu", price: 1100, quantity: 1 },
         { id: "sh-mj1", name: "Lime Mojito", price: 450, quantity: 1 }
       ],
       paymentMethod: "Cash on Delivery",
-      subtotal: 1409.09,
-      tax: 140.91,
-      total: 1550,
+      subtotal: 1550,
+      tax: 279,
+      deliveryFee: 250,
+      total: 2079,
       orderDate: "Yesterday, 06:30 PM",
       status: "Pending",
       timeline: [
@@ -226,6 +364,23 @@ export function OrderManagement() {
   const [selectedPayment, setSelectedPayment] = useState<"All" | "Cash on Delivery" | "Card Payment">("All");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Sync customer orders on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("trinco_orders");
+    if (saved) {
+      try {
+        const customerOrders = JSON.parse(saved);
+        const mappedCustomerOrders = customerOrders.map(mapCustomerOrderToRestaurantOrder);
+        setOrders((prev) => {
+          const mockOnly = prev.filter((o) => !o.id.startsWith("TRC-"));
+          return [...mappedCustomerOrders, ...mockOnly];
+        });
+      } catch (err) {
+        console.error("Error loading customer orders", err);
+      }
+    }
+  }, []);
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -233,6 +388,19 @@ export function OrderManagement() {
   // Modal / Drawer states
   const [activeDrawerOrder, setActiveDrawerOrder] = useState<Order | null>(null);
   const [activeInvoiceOrder, setActiveInvoiceOrder] = useState<Order | null>(null);
+
+  useEffect(() => {
+    if (!routeOrderId) return;
+
+    const targetOrder = orders.find((order) => order.id === routeOrderId);
+    if (!targetOrder) return;
+
+    setSearchTerm(routeOrderId);
+    setActiveTab("All");
+    setSelectedTimeframe("30days");
+    setSelectedPayment("All");
+    setActiveDrawerOrder(targetOrder);
+  }, [routeOrderId, orders]);
 
   // Interactive Cancellation Modal States
   const [cancellationOrder, setCancellationOrder] = useState<Order | null>(null);
@@ -248,6 +416,12 @@ export function OrderManagement() {
     const finalReason = cancellationReason === "Other" ? customReason : cancellationReason;
     if (!finalReason.trim()) {
       toast.error("Please provide a cancellation reason");
+      return;
+    }
+
+    // Strict validation check before cancellation
+    if (cancellationOrder.status === "Completed" || cancellationOrder.status === "Cancelled") {
+      toast.error(`Order is already ${cancellationOrder.status} and cannot be cancelled`);
       return;
     }
 
@@ -280,6 +454,14 @@ export function OrderManagement() {
             setActiveInvoiceOrder(updatedOrder);
           }
 
+          // Persist to customer DB if it is a customer-placed order
+          if (orderId.startsWith("TRC-")) {
+            syncOrderStatusToCustomerDb(orderId, "Cancelled", {
+              reason: finalReason,
+              refundInitiated: order.paymentMethod === "Card Payment" && isRefundApproved,
+            });
+          }
+
           if (order.paymentMethod === "Card Payment" && isRefundApproved) {
             toast.success(`Refund of Rs. ${order.total.toLocaleString()} processed successfully to customer card.`);
           } else {
@@ -302,13 +484,44 @@ export function OrderManagement() {
     setIsRefreshing(true);
     setTimeout(() => {
       setIsRefreshing(false);
+      // Reload customer orders from localStorage
+      const saved = localStorage.getItem("trinco_orders");
+      if (saved) {
+        try {
+          const customerOrders = JSON.parse(saved);
+          const mappedCustomerOrders = customerOrders.map(mapCustomerOrderToRestaurantOrder);
+          setOrders((prev) => {
+            const mockOnly = prev.filter((o) => !o.id.startsWith("TRC-"));
+            return [...mappedCustomerOrders, ...mockOnly];
+          });
+        } catch {}
+      }
       toast.success("Orders database refreshed successfully");
     }, 700);
+  };
+
+  const isValidTransition = (current: OrderStatus, next: OrderStatus): boolean => {
+    if (current === "Completed" || current === "Cancelled") return false;
+    if (next === "Pending") return false;
+    if (current === "Pending" && (next === "Accepted" || next === "Cancelled")) return true;
+    if (current === "Accepted" && (next === "Preparing" || next === "Cancelled")) return true;
+    if (current === "Preparing" && (next === "Completed" || next === "Cancelled")) return true;
+    return false;
   };
 
   // Manage Order Lifecycle
   const updateOrderStatus = (orderId: string, nextStatus: OrderStatus) => {
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Find the order to validate its current status
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) return;
+    
+    if (!isValidTransition(targetOrder.status, nextStatus)) {
+      toast.error(`Invalid status transition from ${targetOrder.status} to ${nextStatus}`);
+      return;
+    }
+
     setOrders((prev) =>
       prev.map((order) => {
         if (order.id === orderId) {
@@ -323,6 +536,11 @@ export function OrderManagement() {
             setActiveInvoiceOrder(updatedOrder);
           }
 
+          // Persist to customer DB if it is a customer-placed order
+          if (orderId.startsWith("TRC-")) {
+            syncOrderStatusToCustomerDb(orderId, nextStatus);
+          }
+
           toast.success(`Order ${orderId} updated to: ${nextStatus}`);
           return updatedOrder;
         }
@@ -333,6 +551,10 @@ export function OrderManagement() {
 
   // Search & Filter Logic
   const filteredOrders = orders.filter((order) => {
+    if (user?.restaurantId && order.restaurantId && order.restaurantId !== user.restaurantId) {
+      return false;
+    }
+
     const matchesSearch =
       order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -669,18 +891,18 @@ export function OrderManagement() {
 
       {/* 4. Orders Data Table Panel */}
       <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[900px]">
+        <div className="overflow-x-auto thin-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1260px] table-fixed">
             <thead>
               <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest pb-3 bg-slate-50/40 dark:bg-slate-800/10">
-                <th className="py-4 px-5">Order ID</th>
-                <th className="py-4 px-4">Customer</th>
-                <th className="py-4 px-4">Items</th>
-                <th className="py-4 px-4">Payment</th>
-                <th className="py-4 px-4 text-right">Amount</th>
-                <th className="py-4 px-4">Date</th>
-                <th className="py-4 px-4">Status</th>
-                <th className="py-4 px-5 text-right">Actions</th>
+                <th className="py-4 px-5 w-[110px]">Order ID</th>
+                <th className="py-4 px-4 w-[200px]">Customer</th>
+                <th className="py-4 px-4 w-[310px]">Items</th>
+                <th className="py-4 px-4 w-[140px]">Payment</th>
+                <th className="py-4 px-4 text-right w-[110px]">Amount</th>
+                <th className="py-4 px-4 w-[130px]">Date</th>
+                <th className="py-4 px-4 w-[120px]">Status</th>
+                <th className="py-4 px-5 text-right w-[140px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-850 text-xs font-semibold text-slate-600 dark:text-slate-350">
@@ -692,7 +914,7 @@ export function OrderManagement() {
                       Accepted: "bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 border border-blue-100 dark:border-blue-900/20",
                       Preparing: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/20",
                       Completed: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/20",
-                      Cancelled: "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400 border border-rose-100 dark:border-rose-900/20"
+                      Cancelled: "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-450 border border-rose-100 dark:border-rose-900/20"
                     };
 
                     const customerInitials = order.customerName
@@ -721,32 +943,58 @@ export function OrderManagement() {
                       >
                         <td className="py-4 px-5 font-bold text-[#71A066] dark:text-emerald-400">{order.id}</td>
                         <td className="py-4 px-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm ${avatarBg[order.status] || "bg-slate-100 text-slate-600"}`}>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0 ${avatarBg[order.status] || "bg-slate-100 text-slate-600"}`}>
                               {customerInitials}
                             </div>
-                            <div className="flex flex-col">
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{order.customerName}</span>
-                              <span className="text-[9px] text-slate-400 font-medium">{order.customerPhone}</span>
+                            <div className="flex flex-col min-w-0 truncate">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 truncate" title={order.customerName}>{order.customerName}</span>
+                              <span className="text-[9px] text-slate-400 font-medium truncate">{order.customerPhone}</span>
                             </div>
                           </div>
                         </td>
-                        <td className="py-4 px-4 max-w-[200px] truncate text-slate-500 dark:text-slate-400">
-                          {order.items.map((it) => `${it.quantity}x ${it.name}`).join(" + ")}
+                        <td className="py-4 px-4">
+                          <div className="flex flex-col gap-1 items-start max-w-full">
+                            {order.items.map((it) => (
+                              <div key={it.id} className="flex flex-col gap-0.5 items-start">
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30"
+                                  title={`${it.quantity}x ${it.name}`}
+                                >
+                                  <span className="text-[#71A066] dark:text-emerald-450 font-black">{it.quantity}x</span>
+                                  <span className="truncate max-w-[180px]">{it.name}</span>
+                                </span>
+                                {it.instructions && (
+                                  <span className="text-[9px] font-semibold text-[#813405] dark:text-[#F8DDA4] pl-2 flex items-center gap-1">
+                                    ↳ 📝 {it.instructions}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {/* Special instructions indicator */}
+                            {order.notes && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/20 text-[9px] font-bold text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/30 max-w-[240px] truncate"
+                                title={order.notes}
+                              >
+                                📝 {order.notes}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-4">
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100/60 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/30 dark:border-slate-800">
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100/60 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/30 dark:border-slate-800 whitespace-nowrap">
                             {order.paymentMethod}
                           </span>
                         </td>
-                        <td className="py-4 px-4 text-right font-bold text-slate-800 dark:text-slate-100">
+                        <td className="py-4 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
                           Rs. {order.total.toLocaleString()}
                         </td>
-                        <td className="py-4 px-4 text-slate-400 dark:text-slate-500 font-normal">
+                        <td className="py-4 px-4 text-slate-400 dark:text-slate-500 font-normal whitespace-nowrap">
                           {order.orderDate}
                         </td>
                         <td className="py-4 px-4">
-                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-sm ${statusConfig[order.status]}`}>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-sm whitespace-nowrap ${statusConfig[order.status]}`}>
                             {order.status}
                           </span>
                         </td>
@@ -983,21 +1231,102 @@ export function OrderManagement() {
                   </div>
                 </div>
 
+                {/* Special Instructions — always shown prominently */}
+                <div className="rounded-xl border-2 border-amber-400/40 bg-amber-50/70 dark:bg-amber-950/20 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={13} className="text-amber-500 shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                      Special Instructions
+                    </span>
+                  </div>
+                  {activeDrawerOrder.notes ? (
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 leading-relaxed pl-5">
+                      {activeDrawerOrder.notes}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-600/50 dark:text-amber-500/50 italic pl-5">
+                      No special instructions provided.
+                    </p>
+                  )}
+                </div>
+
                 {/* 2. Order Items */}
                 <div className="space-y-3">
                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Ordered Items</span>
                   <div className="divide-y divide-slate-100 dark:divide-slate-850">
-                    {activeDrawerOrder.items.map((item) => (
-                      <div key={item.id} className="py-3 flex items-center justify-between text-xs">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{item.name}</span>
-                          <span className="text-[10px] text-slate-400 mt-0.5">Rs. {item.price.toLocaleString()} each</span>
+                    {activeDrawerOrder.items.map((item) => {
+                      const prices = getCartItemPrices(item);
+                      return (
+                        <div key={item.id} className="py-3 flex flex-col gap-1.5 text-xs">
+                          <div className="flex items-start justify-between">
+                            <div className="flex flex-col">
+                              <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
+                                {item.name}
+                                {item.selectedSize && (
+                                  <span className="text-[9px] font-black text-orange-650 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                                    {item.selectedSize}
+                                  </span>
+                                )}
+                                {item.appliedOffer && (
+                                  <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-0.5">
+                                    🎁 {item.appliedOffer.discountBadge}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            <span className="font-black text-slate-700 dark:text-slate-350">
+                              {item.quantity}x {formatPrice(prices.unitTotal)}
+                            </span>
+                          </div>
+                          
+                          {item.appliedOffer?.id === "O-205" && (
+                             <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100/30 flex items-center justify-between text-[11px] text-emerald-700 dark:text-emerald-450 font-bold">
+                               <span className="flex items-center gap-1">
+                                 🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]
+                               </span>
+                               <span className="font-black">Rs 0</span>
+                             </div>
+                           )}
+
+                          <div className="text-[11px] text-slate-500 pl-2 space-y-0.5 border-l border-orange-200">
+                            <div className="flex justify-between">
+                              <span>Base Price ({item.quantity}x {formatPrice(prices.basePrice)})</span>
+                              <span>{formatPrice(prices.totalBasePrice)}</span>
+                            </div>
+                            
+                            {item.selectedExtras && item.selectedExtras.length > 0 && (
+                              <>
+                                {item.selectedExtras.map((extra, idx) => (
+                                  <div key={idx} className="flex justify-between text-slate-400 pl-1.5">
+                                    <span>+ {extra.name} ({item.quantity}x {formatPrice(extra.price)})</span>
+                                    <span>{formatPrice(extra.price * item.quantity)}</span>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between font-bold text-slate-500 pl-1.5 pt-0.5">
+                                  <span>Add-ons Total</span>
+                                  <span>{formatPrice(prices.totalExtrasPrice)}</span>
+                                </div>
+                              </>
+                            )}
+                            
+                            <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300 pt-1 border-t border-slate-100 dark:border-slate-850 mt-1">
+                              <span>Item Total</span>
+                              <span>{formatPrice(prices.itemTotal)}</span>
+                            </div>
+
+                            {item.instructions && (
+                              <div className="mt-2.5 p-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/40 text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-start gap-1.5">
+                                <span className="text-xs">📝</span>
+                                <div className="flex-1">
+                                  <p className="text-[9px] font-black uppercase tracking-wider text-amber-600/70">Item Instructions</p>
+                                  <p className="mt-0.5 leading-relaxed">{item.instructions}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <span className="font-bold text-slate-700 dark:text-slate-300">
-                          {item.quantity}x <span className="text-[10px] text-slate-400 ml-1.5 font-semibold">Rs. {(item.price * item.quantity).toLocaleString()}</span>
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1005,15 +1334,21 @@ export function OrderManagement() {
                 <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-2 text-xs">
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>Subtotal</span>
-                    <span>Rs. {activeDrawerOrder.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatPrice(activeDrawerOrder.subtotal)}</span>
                   </div>
+                  {activeDrawerOrder.orderType === "Delivery" && (
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                      <span>Delivery Fee</span>
+                      <span>{formatPrice(activeDrawerOrder.deliveryFee || 250)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                    <span>GST / VAT (10%)</span>
-                    <span>Rs. {activeDrawerOrder.tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>VAT (18%)</span>
+                    <span>{formatPrice(activeDrawerOrder.tax)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-slate-800 dark:text-white text-sm pt-2 border-t border-slate-100 dark:border-slate-800">
                     <span>Grand Total</span>
-                    <span className="text-[#71A066] dark:text-emerald-400">Rs. {activeDrawerOrder.total.toLocaleString()}</span>
+                    <span className="text-[#71A066] dark:text-emerald-400">{formatPrice(activeDrawerOrder.total)}</span>
                   </div>
                 </div>
 
@@ -1035,18 +1370,7 @@ export function OrderManagement() {
                   </div>
                 </div>
 
-                {/* Order Notes */}
-                {activeDrawerOrder.notes && (
-                  <div className="bg-amber-500/5 dark:bg-amber-500/10 p-3.5 border border-amber-500/10 rounded-xl space-y-1 text-xs">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
-                      <MessageSquare size={12} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Order Notes</span>
-                    </div>
-                    <p className="text-[11px] text-amber-700 dark:text-amber-350 leading-relaxed">{activeDrawerOrder.notes}</p>
-                  </div>
-                )}
 
-                {/* 5. Order Progress Timeline */}
                 <div className="space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-4">
                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Order Timeline</span>
                   
@@ -1234,31 +1558,91 @@ export function OrderManagement() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-medium text-slate-650 dark:text-slate-350">
-                        {activeInvoiceOrder.items.map((item) => (
-                          <tr key={item.id}>
-                            <td className="py-2.5">{item.name}</td>
-                            <td className="py-2.5 text-center">{item.quantity}</td>
-                            <td className="py-2.5 text-right">Rs. {item.price.toLocaleString()}</td>
-                            <td className="py-2.5 text-right font-bold">Rs. {(item.price * item.quantity).toLocaleString()}</td>
-                          </tr>
-                        ))}
+                        {activeInvoiceOrder.items.map((item) => {
+                          const prices = getCartItemPrices(item);
+                          return (
+                            <tr key={item.id} className="border-b border-slate-50 dark:border-slate-850">
+                              <td className="py-3 pr-2">
+                                <div className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
+                                  {item.name}
+                                  {item.selectedSize && (
+                                    <span className="text-[9px] font-black text-orange-650 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                                      {item.selectedSize}
+                                    </span>
+                                  )}
+                                  {item.appliedOffer && (
+                                    <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-0.5">
+                                      🎁 {item.appliedOffer.discountBadge}
+                                    </span>
+                                  )}
+                                </div>
+                                {item.appliedOffer?.id === "O-205" && (
+                                   <div className="mt-2 p-1.5 rounded bg-emerald-50/55 dark:bg-emerald-950/10 text-[10px] text-emerald-700 dark:text-emerald-450 font-bold flex justify-between">
+                                     <span>🎁 {item.quantity}x {item.name} (BOGO Free Item)</span>
+                                     <span>Rs 0</span>
+                                   </div>
+                                 )}
+                                {item.selectedExtras && item.selectedExtras.length > 0 && (
+                                  <div className="mt-1 space-y-0.5 pl-2 border-l border-orange-200 text-[10px] text-slate-400">
+                                    {item.selectedExtras.map((extra, idx) => (
+                                      <div key={idx} className="flex justify-between">
+                                        <span>+ {extra.name} ({formatPrice(extra.price)})</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {item.instructions && (
+                                  <div className="mt-1.5 p-1 rounded bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100/30 text-[10px] text-amber-700 dark:text-amber-450 font-bold">
+                                    <span>📝 Item Instructions: {item.instructions}</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 text-center align-top">{item.quantity}</td>
+                              <td className="py-3 text-right align-top">
+                                <div className="text-[11px] text-slate-500">
+                                  Base: {formatPrice(prices.basePrice)}
+                                </div>
+                                {prices.extrasTotal > 0 && (
+                                  <div className="text-[10px] text-slate-400">
+                                    Extras: +{formatPrice(prices.extrasTotal)}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 text-right align-top font-bold">
+                                <div>{formatPrice(prices.itemTotal)}</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
 
                   {/* Totals box */}
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-4 flex flex-col items-end gap-2 text-xs">
-                    <div className="flex justify-between w-48 text-slate-500 dark:text-slate-400">
+                    <div className="flex justify-between w-52 text-slate-500 dark:text-slate-400">
                       <span>Subtotal:</span>
-                      <span>Rs. {activeInvoiceOrder.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span>{formatPrice(activeInvoiceOrder.subtotal)}</span>
                     </div>
-                    <div className="flex justify-between w-48 text-slate-500 dark:text-slate-400">
-                      <span>GST (10%):</span>
-                      <span>Rs. {activeInvoiceOrder.tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    {activeInvoiceOrder.orderType === "Delivery" && (
+                      <div className="flex justify-between w-52 text-slate-500 dark:text-slate-400">
+                        <span>🛵 Delivery Fee:</span>
+                        <span>{formatPrice(activeInvoiceOrder.deliveryFee)}</span>
+                      </div>
+                    )}
+                    {activeInvoiceOrder.orderType === "Self Pickup" && (
+                      <div className="flex justify-between w-52 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                        <span>🏃 Self Pickup</span>
+                        <span>No delivery fee</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between w-52 text-slate-500 dark:text-slate-400">
+                      <span>🇱🇰 VAT (18%):</span>
+                      <span>{formatPrice(activeInvoiceOrder.tax)}</span>
                     </div>
-                    <div className="flex justify-between w-48 font-extrabold text-slate-800 dark:text-white border-t border-dashed border-slate-200 dark:border-slate-800 pt-2 text-sm">
+                    <div className="flex justify-between w-52 font-extrabold text-slate-800 dark:text-white border-t border-dashed border-slate-200 dark:border-slate-800 pt-2 text-sm">
                       <span>Grand Total:</span>
-                      <span className="text-[#71A066] dark:text-emerald-400">Rs. {activeInvoiceOrder.total.toLocaleString()}</span>
+                      <span className="text-[#71A066] dark:text-emerald-400">{formatPrice(activeInvoiceOrder.total)}</span>
                     </div>
                   </div>
 

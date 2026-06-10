@@ -9,21 +9,20 @@ import food4 from "@/assets/food-4.jpg";
 import food5 from "@/assets/food-5.jpg";
 
 // Category images
-import catAll from "@/assets/srilankan food.jpg";
-import catKoththu from "@/assets/Koththu.jpg";
-import catSrilankan from "@/assets/srilankan food.jpg";
-import catFriedRice from "@/assets/Friedrice.jpg";
-import catNasi from "@/assets/Nasi.jpg";
+import riceandCurry from "@/assets/rice and curry.png";
+import catKoththu from "@/assets/kottu.png";
+import catFriedRice from "@/assets/fried rice.png";
 import catSeafood from "@/assets/seafood.png";
-import catBriyani from "@/assets/briyani.jpg";
-import catBurger from "@/assets/burgar.jpg";
-import catPizza from "@/assets/pizza.avif";
-import catSoftDrinks from "@/assets/softdrink.jpg";
-import catJuice from "@/assets/juice.jpg";
-import catMojito from "@/assets/mojito.jpg";
-import catMilkshake from "@/assets/milkshake.jpg";
-import catDesserts from "@/assets/dessert.jpg";
+import catBriyani from "@/assets/Briyani.png";
+import catBurger from "@/assets/burgur.png";
+import catPizza from "@/assets/Pizza.png";
+import catSoftDrinks from "@/assets/soft drink.png";
+import catJuice from "@/assets/Juice.png";
+import catMojito from "@/assets/Mojito.png";
+import catMilkshake from "@/assets/Milkshake.png";
+import catDesserts from "@/assets/Desserts.png";
 import catChinese from "@/assets/chinesefood.jpg";
+import catNoodels from "@/assets/noodles.png";
 
 // Variety Images - Fried Rice
 import frChicken from "@/assets/chickenfriedrice.jpg";
@@ -53,7 +52,7 @@ import ktChicken from "@/assets/Kottu-Chicken.jpg";
 import ktEgg from "@/assets/kottu-Egg.jpg";
 import ktMutton from "@/assets/kottu-Mutton.jpg";
 import ktVeg from "@/assets/kottu-Veg.jpg";
-import ktSeafood from "@/assets/Koththu.jpg";
+import ktSeafood from "@/assets/kottu.png";
 
 
 
@@ -86,27 +85,48 @@ export type Restaurant = {
   deliveryFee?: number;
   categories: string[];
   menu: FoodItem[];
+
+  // ── Profile fields (editable from restaurant dashboard) ──
+  tagline?: string;
+  description?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  streetAddress?: string;
+  city?: string;
+  logoImage?: string;
+  coverImage?: string;
+  minOrder?: number;
+  halalFriendly?: boolean;
+  vegetarianFriendly?: boolean;
+  dineIn?: boolean;
+  takeaway?: boolean;
+  delivery?: boolean;
+  // Social links
+  facebook?: string;
+  instagram?: string;
+  tiktok?: string;
+  youtube?: string;
+  website?: string;
+  reviewsCount?: number;
 };
 
 export type Category = { name: string; image: string };
 
 export const categories: Category[] = [
   { name: "Kottu", image: catKoththu },
-  { name: "Noodles", image: catChinese },
-  { name: "Srilankan Foods", image: catSrilankan },
+  { name: "Noodles", image: catNoodels },
   { name: "Fried Rice", image: catFriedRice },
-  { name: "Nasi Goreng", image: catNasi },
   { name: "Seafood", image: catSeafood },
   { name: "Briyani", image: catBriyani },
-  { name: "Chinese rice", image: catChinese },
   { name: "Burgers", image: catBurger },
   { name: "Pizza", image: catPizza },
   { name: "Soft Drinks", image: catSoftDrinks },
   { name: "Juice", image: catJuice },
   { name: "Mojito", image: catMojito },
   { name: "Milkshake", image: catMilkshake },
-  { name: "Dessets", image: catDesserts },
-  { name: "Omlete", image: catAll },
+  { name: "Desserts", image: catDesserts },
+  { name: "Rice and Curry", image: riceandCurry },
 ];
 
 const sharedMenu: FoodItem[] = [
@@ -154,6 +174,16 @@ export const restaurants: Restaurant[] = [
     deliveryAvailable: true,
     deliveryFee: 0,
     categories: ["Kottu", "Srilankan Foods", "Seafood", ...commonCategories],
+    tagline: "Authentic Srilankan Foods & Spices",
+    description: "Trinco Spice House brings you the true taste of Trincomalee's culinary heritage. Specializing in Sri Lankan foods and fresh seafood, we pride ourselves on using locally sourced ingredients and traditional spices.",
+    phone: "+94 26 222 3456",
+    whatsapp: "+94 77 123 4567",
+    email: "trincospicehouse@gmail.com",
+    website: "https://trincospicehouse.com",
+    facebook: "https://facebook.com/trincospicehouse",
+    instagram: "https://instagram.com/trincospicehouse",
+    tiktok: "https://tiktok.com/@trincospicehouse",
+    youtube: "https://youtube.com/c/trincospicehouse",
     menu: [
       { id: "f2", name: "Fish Curry & Rice", price: 950, image: food3, description: "Fresh catch in a fragrant Trinco-style curry.", rating: 4.7, category: "Srilankan Foods" },
       ...sharedMenu,
@@ -167,13 +197,24 @@ export const restaurants: Restaurant[] = [
     deliveryTime: "25-35 min",
     category: "Seafood",
     location: "Uppuveli Beach, Trincomalee",
-    hasOffer: false,
+    hasOffer: true,
+    offerText: "20% OFF",
     openingTime: "07:00 AM",
     closingTime: "09:00 PM",
     deliveryRadius: 10,
     deliveryAvailable: true,
     deliveryFee: 150,
     categories: ["Srilankan Foods", "Noodles", "Kottu", "Omlete", "Juice", ...commonCategories],
+    tagline: "Fresh Beachside Seafood Feast",
+    description: "Located directly on Uppuveli Beach, Ocean Pearl Seafood offers a premium selection of fresh ocean catch, prepared with bold coastal seasonings and grilled over hot coals.",
+    phone: "+94 26 222 7890",
+    whatsapp: "+94 77 987 6543",
+    email: "oceanpearl@gmail.com",
+    website: "https://oceanpearlseafood.com",
+    facebook: "https://facebook.com/oceanpearlseafood",
+    instagram: "https://instagram.com/oceanpearlseafood",
+    tiktok: "https://tiktok.com/@oceanpearlseafood",
+    youtube: "https://youtube.com/c/oceanpearlseafood",
     menu: [
       { id: "f3", name: "Grilled Seer Fish", price: 1450, image: food3, description: "Charcoal grilled with lemon butter.", rating: 4.9, popular: true, category: "Seafood" },
       ...sharedMenu,
@@ -195,6 +236,16 @@ export const restaurants: Restaurant[] = [
     deliveryAvailable: true,
     deliveryFee: 250,
     categories: ["Briyani", "Kottu", "Fried Rice", "Seafood", "Soft Drinks", ...commonCategories],
+    tagline: "Aromatic Basmati & Rich Spice",
+    description: "Biryani Palace is famous for its mouthwatering traditional biryani, slow-cooked to perfection with premium basmati rice, tender meats, and a signature spice blend.",
+    phone: "+94 26 222 5555",
+    whatsapp: "+94 77 555 6666",
+    email: "biryanipalace@gmail.com",
+    website: "https://biryanipalace.com",
+    facebook: "https://facebook.com/biryanipalace",
+    instagram: "https://instagram.com/biryanipalace",
+    tiktok: "https://tiktok.com/@biryanipalace",
+    youtube: "https://youtube.com/c/biryanipalace",
     menu: [
       { id: "f5", name: "Chicken Biryani", price: 1050, image: brChicken, description: "Slow-cooked basmati with tender chicken.", rating: 4.8, popular: true, category: "Briyani" },
       { id: "f6", name: "Mutton Biryani", price: 1350, image: food2, description: "Aromatic spices and succulent mutton.", rating: 4.9, category: "Briyani" },
@@ -217,6 +268,16 @@ export const restaurants: Restaurant[] = [
     deliveryAvailable: false,
     deliveryFee: 0,
     categories: ["Fried Rice", "Nasi Goreng", "Noodles", "Chinese Rice", "Juice", ...commonCategories],
+    tagline: "Juicy Handcrafted Flame-Grilled Burgers",
+    description: "Trinco Burger Co. serves the juiciest burgers in town, crafted from premium beef and fresh toppings, alongside wood-fired artisanal pizzas.",
+    phone: "+94 26 222 9999",
+    whatsapp: "+94 77 999 0000",
+    email: "trincoburgerco@gmail.com",
+    website: "https://trincoburgerco.com",
+    facebook: "https://facebook.com/trincoburgerco",
+    instagram: "https://instagram.com/trincoburgerco",
+    tiktok: "https://tiktok.com/@trincoburgerco",
+    youtube: "https://youtube.com/c/trincoburgerco",
     menu: [
       { id: "f7", name: "Double Cheeseburger", price: 1250, image: food4, description: "Two beef patties, melty cheese, fries on the side.", rating: 4.7, popular: true, category: "Burgers" },
       { id: "f8", name: "Margherita Pizza", price: 1450, image: food5, description: "Wood-fired with fresh basil & mozzarella.", rating: 4.5, category: "Pizza" },

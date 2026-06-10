@@ -118,13 +118,13 @@ export function Register() {
                 style={{ color: "rgba(129, 53, 5, 0.75)", fontFamily: "var(--font-body)" }}
               >
                 By creating an account you agree to our{" "}
-                <a href="/terms" className="underline underline-offset-2" style={{ color: C.burnt }}>
+                <Link to="/terms-of-service" className="underline underline-offset-2" style={{ color: C.burnt }}>
                   Terms
-                </a>{" "}
+                </Link>{" "}
                 &amp;{" "}
-                <a href="/privacy" className="underline underline-offset-2" style={{ color: C.burnt }}>
+                <Link to="/privacy-policy" className="underline underline-offset-2" style={{ color: C.burnt }}>
                   Privacy Policy
-                </a>.
+                </Link>.
               </p>
 
               {/* submit */}
