@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CreditCard,
@@ -17,6 +17,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { apiRequest } from "@/utils/api";
 
 // ============================================================================
 // 1. DATA TYPE DEFINITIONS (Simple structures to store our dashboard values)
@@ -27,19 +29,9 @@ interface Transaction {
   id: string;
   orderNumber: string;
   amount: number;
-  type: "Order Revenue" | "Tip Received" | "Refund Debit";
+  type: "Order Revenue" | "Refund Debit";
   date: string;
   status: "Completed" | "Processing" | "Failed";
-}
-
-// Model representing a pending guest refund request
-interface RefundRequest {
-  id: string;
-  customerName: string;
-  orderNumber: string;
-  amount: number;
-  reason: string;
-  status: "Pending" | "Approved" | "Rejected";
 }
 
 // Model representing a past bank deposit payout
@@ -48,6 +40,15 @@ interface PayoutRecord {
   amount: number;
   date: string;
   status: "Settled" | "Processing";
+}
+
+interface RefundRequest {
+  id: string;
+  customerName: string;
+  orderNumber: string;
+  amount: number;
+  reason: string;
+  status: string;
 }
 
 // Model representing bank details
@@ -59,36 +60,58 @@ interface BankDetails {
   status: "Verified" | "Verification Pending";
 }
 
+const formatPayoutId = (id: string) => {
+  if (!id) return "";
+  if (id.includes("-") && id.length > 20) {
+    const parts = id.split("-");
+    return `PAY-${parts[0].toUpperCase()}`;
+  }
+  return id;
+};
+
+
 export function PaymentWallet() {
+  const { token } = useAuth();
+
   // ============================================================================
   // 2. DASHBOARD DATA & STATE HOOKS (Simple React values that trigger updates)
   // ============================================================================
 
   // Wallet Balances (Available, Pending, and Earnings counters)
-  const [availableBalance, setAvailableBalance] = useState(48250.0);
-  const [pendingSettlement, setPendingSettlement] = useState(15420.0);
-  const [todayEarnings, setTodayEarnings] = useState(8450.0);
-  const [monthEarnings, setMonthEarnings] = useState(184200.0);
+  const [availableBalance, setAvailableBalance] = useState(0);
+  const [pendingSettlement, setPendingSettlement] = useState(0);
+  const [todayEarnings, setTodayEarnings] = useState(0);
+  const [monthEarnings, setMonthEarnings] = useState(0);
 
   // Loading spinner states for requests
   const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
-  // Settlement information parameters (Static, simple object)
-  const settlementInfo = {
-    amount: 15420.0,
-    period: "May 25, 2026 - May 29, 2026",
-    ordersIncluded: 34,
-    expectedDate: "June 01, 2026",
-  };
+  // Refund requests state
+  const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
+
+  // Manual cash refund form states
+  const [isAddingRefund, setIsAddingRefund] = useState(false);
+  const [newOrderNumber, setNewOrderNumber] = useState("");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+  const [newReason, setNewReason] = useState("");
+  const [newStatus, setNewStatus] = useState("Pending");
+
+  // Settlement information parameters
+  const [settlementInfo, setSettlementInfo] = useState({
+    amount: 0,
+    period: "Loading...",
+    ordersIncluded: 0,
+    expectedDate: "Loading...",
+  });
 
   // Verified Bank details state
   const [bankDetails, setBankDetails] = useState<BankDetails>({
-    holderName: "Trinco Bites Restaurant Group",
-    bankName: "Commercial Bank of Ceylon",
-    accountNumber: "**********9824",
-    branch: "Trincomalee Main Branch",
-    status: "Verified",
+    holderName: "",
+    bankName: "",
+    accountNumber: "",
+    branch: "",
+    status: "Verification Pending",
   });
 
   // Modal open controls for Bank Details edit form
@@ -98,221 +121,136 @@ export function PaymentWallet() {
   const [tempAccountNumber, setTempAccountNumber] = useState("");
   const [tempBranchName, setTempBranchName] = useState("");
 
-  // Earnings Breakdown figures (Simple layout values)
-  const breakdown = {
-    deliveryRevenue: 132400.0,
-    pickupRevenue: 41250.0,
-    tipsReceived: 6250.0,
-    promotionsContribution: 4300.0,
-    platformCommission: 18420.0,
-    deliveryFee: 6250.0,
-    taxes: 8400.0,
-  };
+  // Earnings Breakdown figures
+  const [breakdown, setBreakdown] = useState({
+    deliveryRevenue: 0,
+    pickupRevenue: 0,
+    promotionsContribution: 0,
+    platformCommission: 0,
+    deliveryFee: 0,
+    taxes: 0,
+  });
 
   // Simple direct arithmetic to calculate net earnings (No complex React useMemo)
   const totalRevenue =
     breakdown.deliveryRevenue +
     breakdown.pickupRevenue +
-    breakdown.tipsReceived +
     breakdown.promotionsContribution;
   const totalDeductions =
     breakdown.platformCommission + breakdown.deliveryFee + breakdown.taxes;
   const netEarnings = totalRevenue - totalDeductions;
 
   // Recent Payout Transactions list
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    {
-      id: "TXN-9842",
-      orderNumber: "TB-9824",
-      amount: 4200.0,
-      type: "Order Revenue",
-      date: "2026-05-29 11:45",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9841",
-      orderNumber: "TB-9824",
-      amount: 250.0,
-      type: "Tip Received",
-      date: "2026-05-29 11:45",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9840",
-      orderNumber: "TB-9822",
-      amount: 1850.0,
-      type: "Order Revenue",
-      date: "2026-05-29 10:12",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9839",
-      orderNumber: "TB-9818",
-      amount: 3200.0,
-      type: "Order Revenue",
-      date: "2026-05-29 08:30",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9838",
-      orderNumber: "TB-9795",
-      amount: -1500.0,
-      type: "Refund Debit",
-      date: "2026-05-28 16:40",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9837",
-      orderNumber: "TB-9810",
-      amount: 2450.0,
-      type: "Order Revenue",
-      date: "2026-05-28 14:15",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9836",
-      orderNumber: "TB-9808",
-      amount: 5120.0,
-      type: "Order Revenue",
-      date: "2026-05-28 11:05",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9835",
-      orderNumber: "TB-9805",
-      amount: 350.0,
-      type: "Tip Received",
-      date: "2026-05-28 09:20",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9834",
-      orderNumber: "TB-9799",
-      amount: 1980.0,
-      type: "Order Revenue",
-      date: "2026-05-27 19:40",
-      status: "Completed",
-    },
-    {
-      id: "TXN-9833",
-      orderNumber: "TB-9801",
-      amount: 4890.0,
-      type: "Order Revenue",
-      date: "2026-05-27 18:15",
-      status: "Failed",
-    },
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
 
   // Search keyword & category type filter states
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("All");
 
-  // Pending Refund claims queue
-  const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([
-    {
-      id: "REF-101",
-      customerName: "Shamil Mohamed",
-      orderNumber: "TB-9804",
-      amount: 1850.0,
-      reason: "Incorrect dish delivered (Burger was beef instead of chicken)",
-      status: "Pending",
-    },
-    {
-      id: "REF-102",
-      customerName: "Ramesh Kumar",
-      orderNumber: "TB-9788",
-      amount: 3200.0,
-      reason: "Delivery delayed past 90 mins (Food was cold)",
-      status: "Pending",
-    },
-    {
-      id: "REF-103",
-      customerName: "Minuki De Silva",
-      orderNumber: "TB-9755",
-      amount: 980.0,
-      reason: "Missing beverages and garlic bread",
-      status: "Pending",
-    },
-  ]);
-
-  // Refund Rules & Policies settings states
-  const [refundPolicy, setRefundPolicy] = useState(
-    "Refunds will be processed instantly if errors are validated. Dynamic reviews on complaints are performed on high value disputes above LKR 2,500. Automatic restock clearances will trigger upon approval.",
-  );
-  const [autoApproveSmall, setAutoApproveSmall] = useState(true);
-  const [maxRefundLimit, setMaxRefundLimit] = useState(1000);
-
   // Payout direct deposits history list
-  const [payoutHistory, setPayoutHistory] = useState<PayoutRecord[]>([
-    { id: "PAY-501", amount: 142850.0, date: "2026-05-25", status: "Settled" },
-    { id: "PAY-502", amount: 128400.0, date: "2026-05-18", status: "Settled" },
-    { id: "PAY-503", amount: 98650.0, date: "2026-05-11", status: "Settled" },
-    { id: "PAY-504", amount: 154200.0, date: "2026-05-04", status: "Settled" },
-  ]);
+  const [payoutHistory, setPayoutHistory] = useState<PayoutRecord[]>([]);
 
-  // Export report loaders map
-  const [exportLoadingKey, setExportLoadingKey] = useState("");
+  // ============================================================================
+  // API INTEGRATION & FETCH HOOKS
+  // ============================================================================
+
+  const fetchDashboard = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiRequest<any>("/payment/dashboard", { token });
+      setAvailableBalance(data.availableBalance);
+      setPendingSettlement(data.pendingSettlement);
+      setTodayEarnings(data.todayEarnings);
+      setMonthEarnings(data.monthEarnings);
+      setBreakdown(data.breakdown);
+      setSettlementInfo(data.settlementInfo);
+      setBankDetails(data.bankDetails);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load dashboard statistics");
+    }
+  }, [token]);
+
+  const fetchTransactions = useCallback(async (query: string, type: string) => {
+    if (!token) return;
+    try {
+      const path = `/payment/transactions?search=${encodeURIComponent(query)}&type=${encodeURIComponent(type)}`;
+      const data = await apiRequest<Transaction[]>(path, { token });
+      setTransactions(data);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load transactions");
+    }
+  }, [token]);
+
+  const fetchPayoutHistory = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiRequest<PayoutRecord[]>("/payment/payout-history", { token });
+      setPayoutHistory(data);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load payout history");
+    }
+  }, [token]);
+
+  const fetchRefundRequests = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiRequest<RefundRequest[]>("/payment/refund-requests", { token });
+      setRefundRequests(data);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load refund requests");
+    }
+  }, [token]);
+
+  // Load dashboard, payouts, and refund requests on token change
+  useEffect(() => {
+    if (!token) return;
+    fetchDashboard();
+    fetchPayoutHistory();
+    fetchRefundRequests();
+  }, [token, fetchDashboard, fetchPayoutHistory, fetchRefundRequests]);
+
+  // Search/Filter transactions with debouncing
+  useEffect(() => {
+    if (!token) return;
+    const delayDebounce = setTimeout(() => {
+      fetchTransactions(searchQuery, filterType);
+    }, 300);
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery, filterType, token, fetchTransactions]);
 
   // ============================================================================
   // 3. EVENT HANDLERS (Simple functions to change data when buttons are clicked)
   // ============================================================================
 
-  // Triggers when a user filters recent transactions list
+  // Returns transactions filter directly since it is filtered backend-side
   const getFilteredTransactions = () => {
-    return transactions.filter((txn) => {
-      // 1. Filter by keyword matching ID or Order Number
-      const matchesSearch =
-        txn.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        txn.orderNumber.toLowerCase().includes(searchQuery.toLowerCase());
-
-      // 2. Filter by Transaction category type dropdown selection
-      let matchesType = false;
-      if (filterType === "All") {
-        matchesType = true;
-      } else if (filterType === "Revenue" && txn.type === "Order Revenue") {
-        matchesType = true;
-      } else if (filterType === "Tips" && txn.type === "Tip Received") {
-        matchesType = true;
-      } else if (filterType === "Refunds" && txn.type === "Refund Debit") {
-        matchesType = true;
-      }
-
-      return matchesSearch && matchesType;
-    });
+    return transactions;
   };
 
   // Triggers when owner requests early balance payout withdrawal
-  const handleRequestEarlyPayout = () => {
+  const handleRequestEarlyPayout = async () => {
     if (availableBalance <= 1000) {
       toast.error("Available balance is too low for early payout.");
       return;
     }
 
     setIsWithdrawing(true);
+    try {
+      const res = await apiRequest<{ availableBalance: number; payout: PayoutRecord }>("/payment/payout", {
+        method: "POST",
+        token,
+      });
 
-    // Simulate network latency before updating balance
-    setTimeout(() => {
-      setIsWithdrawing(false);
-      const payoutAmount = availableBalance;
-      setAvailableBalance(0); // Balance is transferred to bank account
-
-      // Record payout to historical settlements list
-      const today = new Date();
-      const pad = (val: number) => val.toString().padStart(2, "0");
-      const dateStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-
-      const newPayout: PayoutRecord = {
-        id: `PAY-${Date.now().toString().slice(-3)}`,
-        amount: payoutAmount,
-        date: dateStr,
-        status: "Processing",
-      };
-
-      setPayoutHistory((prevHistory) => [newPayout, ...prevHistory]);
+      setAvailableBalance(res.availableBalance);
+      setPayoutHistory((prev) => [res.payout, ...prev]);
       toast.success(
-        `Payout of LKR ${payoutAmount.toLocaleString()} requested! Funds will credit your account shortly.`,
+        `Payout of LKR ${res.payout.amount.toLocaleString()} requested! Funds will credit your account shortly.`,
       );
-    }, 1500);
+    } catch (err: any) {
+      toast.error(err.message || "Payout request failed");
+    } finally {
+      setIsWithdrawing(false);
+    }
   };
 
   // Triggers when Bank Details edit dialog button is clicked
@@ -325,90 +263,80 @@ export function PaymentWallet() {
   };
 
   // Saves bank details form
-  const handleSaveBankForm = (e: React.FormEvent) => {
+  const handleSaveBankForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBankDetails({
-      holderName: tempHolderName,
-      bankName: tempBankName,
-      accountNumber: tempAccountNumber,
-      branch: tempBranchName,
-      status: "Verification Pending", // Triggers audit re-verification
-    });
-    setIsEditingBank(false);
-    toast.success(
-      "Bank settings updated successfully! Verification audit in progress.",
-    );
-  };
+    try {
+      const updated = await apiRequest<BankDetails>("/payment/bank-details", {
+        method: "POST",
+        token,
+        body: {
+          holderName: tempHolderName,
+          bankName: tempBankName,
+          accountNumber: tempAccountNumber,
+          branch: tempBranchName,
+        },
+      });
 
-  // Approves or rejects customer refund claims
-  const handleResolveCustomerRefund = (
-    requestId: string,
-    outcome: "Approve" | "Reject",
-  ) => {
-    const claim = refundRequests.find((r) => r.id === requestId);
-    if (!claim) return;
-
-    if (outcome === "Approve") {
-      // Deduct balance directly
-      if (availableBalance >= claim.amount) {
-        setAvailableBalance((prev) => prev - claim.amount);
-      } else {
-        setPendingSettlement((prev) => prev - claim.amount);
-      }
-
-      // Record a refund debit transaction entry
-      const now = new Date();
-      const pad = (val: number) => val.toString().padStart(2, "0");
-      const timestampStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-
-      const newTxn: Transaction = {
-        id: `TXN-${Date.now().toString().slice(-4)}`,
-        orderNumber: claim.orderNumber,
-        amount: -claim.amount, // Negated debit amount
-        type: "Refund Debit",
-        date: timestampStr,
-        status: "Completed",
-      };
-
-      setTransactions((prevTxns) => [newTxn, ...prevTxns]);
+      setBankDetails(updated);
+      setIsEditingBank(false);
       toast.success(
-        `Refund of LKR ${claim.amount.toLocaleString()} approved for ${claim.customerName}!`,
+        "Bank settings updated successfully! Verification audit in progress.",
       );
-    } else {
-      toast.error(
-        `Refund request rejected for ${claim.customerName}. Dispute reported to admin.`,
-      );
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save bank details");
     }
-
-    // Clear request item from queue list
-    setRefundRequests((prevRequests) =>
-      prevRequests.filter((r) => r.id !== requestId),
-    );
   };
 
-  // Saves refund policy inputs
-  const handleSaveRefundSettings = () => {
-    setIsSavingSettings(true);
-    setTimeout(() => {
-      setIsSavingSettings(false);
-      toast.success("Refund criteria policies saved successfully.");
-    }, 850);
+  // Logs a manual cash refund
+  const handleAddRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiRequest<any>("/payment/refund-requests", {
+        method: "POST",
+        token,
+        body: {
+          orderNumber: newOrderNumber,
+          customerName: newCustomerName,
+          amount: Number(newAmount),
+          reason: newReason,
+          status: newStatus,
+        },
+      });
+      toast.success("Manual cash refund logged successfully.");
+      setIsAddingRefund(false);
+      setNewOrderNumber("");
+      setNewCustomerName("");
+      setNewAmount("");
+      setNewReason("");
+      setNewStatus("Pending");
+      fetchDashboard();
+      fetchTransactions(searchQuery, filterType);
+      fetchRefundRequests();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to log refund");
+    }
   };
+
+  // Updates status of a refund
+  const handleUpdateRefundStatus = async (refundId: string, statusVal: string) => {
+    try {
+      await apiRequest<any>(`/payment/refund-requests/${refundId}/status`, {
+        method: "PATCH",
+        token,
+        body: { status: statusVal },
+      });
+      toast.success(`Refund status updated to ${statusVal}`);
+      fetchDashboard();
+      fetchTransactions(searchQuery, filterType);
+      fetchRefundRequests();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update refund status");
+    }
+  };
+
+
 
   // ─── File Download Helpers ──────────────────────────────────────────────────
-
-  /** Triggers a browser CSV file download from string content */
-  const downloadCSV = (filename: string, csvContent: string) => {
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.setAttribute("download", filename);
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  };
 
   /**
    * Builds a complete branded HTML document string and triggers a direct
@@ -542,88 +470,6 @@ export function PaymentWallet() {
     printWindow.focus();
     setTimeout(() => printWindow.print(), 400);
   };
-
-  // ─── Export Handlers ─────────────────────────────────────────────────────────
-
-  /** Exports all transaction history to a CSV file */
-  const handleExportTransactionsCSV = () => {
-    setExportLoadingKey("txns");
-    const headers = ["Transaction ID", "Order Number", "Type", "Date", "Status", "Amount (LKR)"];
-    const rows = transactions.map((t) => [
-      t.id,
-      t.orderNumber,
-      t.type,
-      t.date,
-      t.status,
-      t.amount.toFixed(2),
-    ]);
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const filename = `trinco-bites-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-    setTimeout(() => {
-      downloadCSV(filename, csvContent);
-      setExportLoadingKey("");
-      toast.success("Transaction log downloaded as CSV!");
-    }, 600);
-  };
-
-  /** Exports payout history as a printable PDF via browser */
-  const handleExportPayoutHistoryPDF = () => {
-    setExportLoadingKey("payouts");
-    const rows = payoutHistory
-      .map(
-        (p) =>
-          `<tr>
-            <td style="font-family:monospace;">${p.id}</td>
-            <td class="amount-credit">LKR ${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-            <td>${p.date}</td>
-            <td><span class="badge badge-${p.status.toLowerCase()}">${p.status}</span></td>
-          </tr>`,
-      )
-      .join("");
-    const totalPaid = payoutHistory.reduce((acc, p) => acc + p.amount, 0);
-    const htmlBody = `
-      <p class="section-title">Settled Direct Deposits — Full Payout History</p>
-      <table>
-        <thead><tr><th>Payout ID</th><th>Amount Credited</th><th>Settle Date</th><th>Status</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="summary-box">
-        <div class="summary-row"><span>Total Records</span><span>${payoutHistory.length} payouts</span></div>
-        <div class="summary-row"><span>Total Credited</span><span>LKR ${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
-      </div>
-    `;
-    setTimeout(() => {
-      openPrintWindow("Payout History Report — Trinco Bites", htmlBody);
-      setExportLoadingKey("");
-      toast.success("Payout History Report opened for printing/saving.");
-    }, 600);
-  };
-
-  /** Exports refund requests list as a CSV file */
-  const handleExportRefundsCSV = () => {
-    setExportLoadingKey("refunds");
-    const headers = ["Refund ID", "Customer Name", "Order Number", "Amount (LKR)", "Reason", "Status"];
-    const rows = refundRequests.map((r) => [
-      r.id,
-      r.customerName,
-      r.orderNumber,
-      r.amount.toFixed(2),
-      r.reason,
-      r.status,
-    ]);
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const filename = `trinco-bites-refunds-${new Date().toISOString().slice(0, 10)}.csv`;
-    setTimeout(() => {
-      downloadCSV(filename, csvContent);
-      setExportLoadingKey("");
-      toast.success("Refund report downloaded as CSV!");
-    }, 600);
-  };
-
   /** Downloads a monthly financial statement PDF */
   const handleDownloadMonthlyStatement = () => {
     const monthLabel = new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" });
@@ -641,7 +487,6 @@ export function PaymentWallet() {
         <tbody>
           <tr><td>Delivery Orders Revenue</td><td class="amount-credit">+LKR ${breakdown.deliveryRevenue.toLocaleString()}</td></tr>
           <tr><td>Pickup Orders Revenue</td><td class="amount-credit">+LKR ${breakdown.pickupRevenue.toLocaleString()}</td></tr>
-          <tr><td>Tips Received</td><td class="amount-credit">+LKR ${breakdown.tipsReceived.toLocaleString()}</td></tr>
           <tr><td>Platform Promotions</td><td class="amount-credit">+LKR ${breakdown.promotionsContribution.toLocaleString()}</td></tr>
           <tr><td>Platform Commission (10%)</td><td class="amount-debit">-LKR ${breakdown.platformCommission.toLocaleString()}</td></tr>
           <tr><td>Delivery Service Fee</td><td class="amount-debit">-LKR ${breakdown.deliveryFee.toLocaleString()}</td></tr>
@@ -665,10 +510,11 @@ export function PaymentWallet() {
   /** Generates and directly downloads an HTML invoice file for a specific payout.
    *  Uses Blob download (no popup) — open the file in browser then Ctrl+P to save as PDF. */
   const handleDownloadPayoutInvoice = (payout: PayoutRecord) => {
+    const formattedId = formatPayoutId(payout.id);
     const htmlBody = `
-      <p class="section-title">Payout Invoice &mdash; ${payout.id}</p>
+      <p class="section-title">Payout Invoice &mdash; ${formattedId}</p>
       <div class="summary-box">
-        <div class="summary-row"><span>Invoice Number</span><span>${payout.id}</span></div>
+        <div class="summary-row"><span>Invoice Number</span><span>${formattedId}</span></div>
         <div class="summary-row"><span>Settle Date</span><span>${payout.date}</span></div>
         <div class="summary-row"><span>Recipient Bank</span><span>${bankDetails.bankName}</span></div>
         <div class="summary-row"><span>Account Holder</span><span>${bankDetails.holderName}</span></div>
@@ -679,9 +525,9 @@ export function PaymentWallet() {
       </div>
       <p style="font-size:10px;color:#888;">This invoice confirms a direct deposit credited to the above bank account by Trinco Bites Payments Platform.</p>
     `;
-    const filename = `invoice-${payout.id}-${payout.date}.html`;
-    downloadHTML(filename, `Payout Invoice ${payout.id} — Trinco Bites`, htmlBody);
-    toast.success(`Invoice ${payout.id} downloaded! Open the file and press Ctrl+P to save as PDF.`);
+    const filename = `invoice-${formattedId}-${payout.date}.html`;
+    downloadHTML(filename, `Payout Invoice ${formattedId} — Trinco Bites`, htmlBody);
+    toast.success(`Invoice ${formattedId} downloaded! Open the file and press Ctrl+P to save as PDF.`);
   };
 
   return (
@@ -813,7 +659,7 @@ export function PaymentWallet() {
                   Recent Transactions
                 </h3>
                 <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                  Summary logs of sales, tips, and deductions.
+                  Summary logs of sales and deductions.
                 </p>
               </div>
 
@@ -837,7 +683,6 @@ export function PaymentWallet() {
                 >
                   <option value="All">All Transactions</option>
                   <option value="Revenue">Orders Revenue</option>
-                  <option value="Tips">Tips Only</option>
                   <option value="Refunds">Refund Debits</option>
                 </select>
               </div>
@@ -905,9 +750,8 @@ export function PaymentWallet() {
                           </span>
                         </td>
                         <td
-                          className={`py-3 px-3 text-right font-black ${
-                            isCredit ? "text-emerald-600" : "text-rose-500"
-                          }`}
+                          className={`py-3 px-3 text-right font-black ${isCredit ? "text-emerald-600" : "text-rose-500"
+                            }`}
                         >
                           {isCredit ? "+" : ""}LKR {txn.amount.toLocaleString()}
                         </td>
@@ -930,97 +774,7 @@ export function PaymentWallet() {
             </div>
           </div>
 
-          {/* 7. REFUND MANAGEMENT TABLE */}
-          <div className="bg-white dark:bg-slate-900 border border-[#4E3E2A]/10 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
-            <div className="border-b border-[#4E3E2A]/5 dark:border-slate-800 pb-4 mb-4">
-              <h3 className="text-sm font-black text-[#813405] dark:text-[#F9A03F] uppercase tracking-wider flex items-center gap-1.5">
-                <AlertTriangle size={15} className="text-amber-500" /> Diner
-                Refund Requests
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                Claims raised due to ingredient errors or delays. Confirm to
-                credit guest wallet immediately.
-              </p>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-[#4E3E2A]/5 dark:border-slate-800 text-[10px] font-black text-[#4E3E2A]/40 dark:text-slate-500 uppercase tracking-wider">
-                    <th className="py-2.5 px-3">Customer Name</th>
-                    <th className="py-2.5 px-3">Order #</th>
-                    <th className="py-2.5 px-3">Dispute Reason</th>
-                    <th className="py-2.5 px-3">Dispute Amount</th>
-                    <th className="py-2.5 px-3 text-right">
-                      Action Resolution
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence initial={false}>
-                    {refundRequests.map((claim) => (
-                      <motion.tr
-                        key={claim.id}
-                        layout
-                        exit={{ opacity: 0, x: -30 }}
-                        transition={{ duration: 0.2 }}
-                        className="border-b border-[#4E3E2A]/3 dark:border-slate-800/40 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 text-xs text-[#4E3E2A]/85 dark:text-slate-350"
-                      >
-                        <td className="py-3 px-3 font-extrabold">
-                          {claim.customerName}
-                        </td>
-                        <td className="py-3 px-3 font-bold text-[#813405] dark:text-[#F9A03F]">
-                          {claim.orderNumber}
-                        </td>
-                        <td
-                          className="py-3 px-3 max-w-[200px] truncate text-slate-400 font-semibold"
-                          title={claim.reason}
-                        >
-                          {claim.reason}
-                        </td>
-                        <td className="py-3 px-3 font-black text-rose-500">
-                          LKR {claim.amount.toLocaleString()}
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() =>
-                                handleResolveCustomerRefund(claim.id, "Approve")
-                              }
-                              className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[10px] font-black cursor-pointer shadow-sm transition flex items-center gap-1"
-                            >
-                              <Check size={10} strokeWidth={3} />
-                              <span>Approve</span>
-                            </button>
-                            <button
-                              onClick={() =>
-                                handleResolveCustomerRefund(claim.id, "Reject")
-                              }
-                              className="px-2.5 py-1.5 bg-white hover:bg-rose-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 text-slate-500 hover:text-rose-500 rounded-lg text-[10px] font-black cursor-pointer transition flex items-center gap-1"
-                            >
-                              <X size={10} strokeWidth={3} />
-                              <span>Reject</span>
-                            </button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-
-                    {refundRequests.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="text-center py-8 text-xs text-emerald-600 bg-emerald-500/5 rounded-2xl font-bold"
-                        >
-                          🎉 Complete! No pending diner refund requests.
-                        </td>
-                      </tr>
-                    )}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
-          </div>
 
           {/* 9. PAYOUT HISTORY TABLE */}
           <div className="bg-white dark:bg-slate-900 border border-[#4E3E2A]/10 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
@@ -1052,7 +806,7 @@ export function PaymentWallet() {
                       className="border-b border-[#4E3E2A]/3 dark:border-slate-800/40 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 text-xs text-[#4E3E2A]/85 dark:text-slate-350"
                     >
                       <td className="py-3 px-3 font-mono font-bold text-slate-400 text-[11px]">
-                        {payout.id}
+                        {formatPayoutId(payout.id)}
                       </td>
                       <td className="py-3 px-3 font-black">
                         LKR{" "}
@@ -1065,11 +819,10 @@ export function PaymentWallet() {
                       </td>
                       <td className="py-3 px-3">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            payout.status === "Settled"
-                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                              : "bg-amber-500/10 text-amber-600 border-amber-500/20 animate-pulse"
-                          }`}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${payout.status === "Settled"
+                            ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-600 border-amber-500/20 animate-pulse"
+                            }`}
                         >
                           {payout.status}
                         </span>
@@ -1085,6 +838,95 @@ export function PaymentWallet() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Refund Log & Tracker Table */}
+          <div className="bg-white dark:bg-slate-900 border border-[#4E3E2A]/10 dark:border-slate-800 p-6 rounded-3xl shadow-sm mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#4E3E2A]/5 dark:border-slate-800 pb-4 mb-4">
+              <div>
+                <h3 className="text-sm font-black text-[#813405] dark:text-[#F9A03F] uppercase tracking-wider">
+                  Refund Log & Tracker
+                </h3>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Track automatic card refunds and manually logged cash refunds.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsAddingRefund(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFCF5] hover:bg-[#F8DDA4]/20 border border-[#F8DDA4]/65 dark:bg-slate-950 dark:border-slate-800 text-[#813405] dark:text-[#F9A03F] text-[10px] font-black rounded-lg transition cursor-pointer"
+              >
+                <span>+ Log Cash Refund</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#4E3E2A]/5 dark:border-slate-800 text-[10px] font-black text-[#4E3E2A]/40 dark:text-slate-500 uppercase tracking-wider">
+                    <th className="py-2.5 px-3">Order Number</th>
+                    <th className="py-2.5 px-3">Customer Name</th>
+                    <th className="py-2.5 px-3">Reason</th>
+                    <th className="py-2.5 px-3">Amount</th>
+                    <th className="py-2.5 px-3 text-right">Refund Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {refundRequests.map((claim) => (
+                    <tr
+                      key={claim.id}
+                      className="border-b border-[#4E3E2A]/3 dark:border-slate-800/40 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 text-xs text-[#4E3E2A]/85 dark:text-slate-350"
+                    >
+                      <td className="py-3 px-3 font-black text-[#813405] dark:text-[#F9A03F]">
+                        {claim.orderNumber}
+                      </td>
+                      <td className="py-3 px-3 font-extrabold">
+                        {claim.customerName}
+                      </td>
+                      <td
+                        className="py-3 px-3 max-w-[200px] truncate text-slate-400 font-semibold"
+                        title={claim.reason}
+                      >
+                        {claim.reason}
+                      </td>
+                      <td className="py-3 px-3 font-black text-rose-500">
+                        LKR {claim.amount.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <select
+                          value={claim.status}
+                          onChange={(e) => handleUpdateRefundStatus(claim.id, e.target.value)}
+                          className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border focus:outline-none cursor-pointer ${
+                            claim.status === "Approved" || claim.status === "Completed"
+                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                              : claim.status === "Processing"
+                              ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                              : claim.status === "Rejected"
+                              ? "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                              : "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                          }`}
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Processing">Processing</option>
+                          <option value="Approved">Approved</option>
+                          <option value="Rejected">Rejected</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {refundRequests.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="text-center py-8 text-xs text-slate-400"
+                      >
+                        No refunds recorded yet.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1178,7 +1020,7 @@ export function PaymentWallet() {
                   Account Holder Name
                 </span>
                 <span className="font-extrabold mt-0.5 block">
-                  {bankDetails.holderName}
+                  {bankDetails.holderName || "Not Configured"}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1187,7 +1029,7 @@ export function PaymentWallet() {
                     Bank Partner
                   </span>
                   <span className="font-extrabold mt-0.5 block">
-                    {bankDetails.bankName}
+                    {bankDetails.bankName || "Not Configured"}
                   </span>
                 </div>
                 <div>
@@ -1195,7 +1037,7 @@ export function PaymentWallet() {
                     Account #
                   </span>
                   <span className="font-mono font-bold mt-0.5 block">
-                    {bankDetails.accountNumber}
+                    {bankDetails.accountNumber || "Not Configured"}
                   </span>
                 </div>
               </div>
@@ -1204,7 +1046,7 @@ export function PaymentWallet() {
                   Branch
                 </span>
                 <span className="font-bold mt-0.5 block">
-                  {bankDetails.branch}
+                  {bankDetails.branch || "Not Configured"}
                 </span>
               </div>
             </div>
@@ -1230,12 +1072,7 @@ export function PaymentWallet() {
                   +LKR {breakdown.pickupRevenue.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-slate-400 font-medium">
-                <span>Tips Received</span>
-                <span className="font-bold text-emerald-600">
-                  +LKR {breakdown.tipsReceived.toLocaleString()}
-                </span>
-              </div>
+
               <div className="flex justify-between items-center text-slate-400 font-medium">
                 <span>Platform Promotions</span>
                 <span className="font-bold text-[#4E3E2A] dark:text-slate-200">
@@ -1279,135 +1116,8 @@ export function PaymentWallet() {
             </div>
           </div>
 
-          {/* 8. REFUND POLICY SETTINGS FORM */}
-          <div className="bg-white dark:bg-slate-900 border border-[#4E3E2A]/10 dark:border-slate-800 p-6 rounded-3xl shadow-sm flex flex-col gap-4">
-            <h3 className="text-xs font-black text-[#813405] dark:text-[#F9A03F] uppercase tracking-wider border-b border-[#4E3E2A]/5 dark:border-slate-800 pb-3">
-              Refund Settings
-            </h3>
 
-            <div className="space-y-4 text-xs font-medium">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-slate-400 uppercase">
-                  Custom Refund Policy
-                </label>
-                <textarea
-                  value={refundPolicy}
-                  onChange={(e) => setRefundPolicy(e.target.value)}
-                  className="w-full h-24 p-2.5 bg-[#FFFCF5]/50 dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] leading-relaxed dark:text-slate-200"
-                />
-              </div>
 
-              {/* Simple toggle block */}
-              <div
-                onClick={() => setAutoApproveSmall(!autoApproveSmall)}
-                className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-[#4E3E2A]/5 dark:border-slate-800 rounded-xl cursor-pointer select-none"
-              >
-                <div>
-                  <span className="font-extrabold text-[#4E3E2A] dark:text-slate-200 block">
-                    Auto Approve Small Claims
-                  </span>
-                  <span className="text-[9px] text-slate-400 block mt-0.5">
-                    Approve claims below limits instantly
-                  </span>
-                </div>
-                <div
-                  className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 shrink-0 ${
-                    autoApproveSmall
-                      ? "bg-emerald-500"
-                      : "bg-slate-250 dark:bg-slate-850"
-                  }`}
-                >
-                  <motion.div
-                    layout
-                    className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-white rounded-full shadow"
-                    animate={{ x: autoApproveSmall ? 14 : 0 }}
-                  />
-                </div>
-              </div>
-
-              {/* Limit value configuration */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-slate-400 uppercase">
-                  Maximum Instant Claim Limit (LKR)
-                </label>
-                <input
-                  type="number"
-                  value={maxRefundLimit}
-                  onChange={(e) => setMaxRefundLimit(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-[#FFFCF5]/50 dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] font-bold dark:text-slate-250"
-                />
-              </div>
-
-              <button
-                onClick={handleSaveRefundSettings}
-                disabled={isSavingSettings}
-                className="w-full py-2.5 bg-[#813405] hover:bg-[#D45113] text-white text-xs font-black rounded-xl transition cursor-pointer shadow flex items-center justify-center gap-1.5 animate-none"
-              >
-                {isSavingSettings ? (
-                  <>
-                    <RefreshCw size={13} className="animate-spin" />
-                    <span>Saving Settings...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={13} />
-                    <span>Save Policy Settings</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* 10. REPORTS & EXPORTS CENTER */}
-          <div className="bg-white dark:bg-slate-900 border border-[#4E3E2A]/10 dark:border-slate-800 p-6 rounded-3xl shadow-sm flex flex-col gap-4">
-            <h3 className="text-xs font-black text-[#813405] dark:text-[#F9A03F] uppercase tracking-wider border-b border-[#4E3E2A]/5 dark:border-slate-800 pb-3">
-              Reports & Exports
-            </h3>
-
-            <div className="grid grid-cols-1 gap-2 text-xs font-semibold">
-              {/* Export Transactions Log — CSV download */}
-              <button
-                onClick={handleExportTransactionsCSV}
-                disabled={exportLoadingKey === "txns"}
-                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
-              >
-                <span>Export Transactions Log (CSV)</span>
-                {exportLoadingKey === "txns" ? (
-                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
-                ) : (
-                  <Download size={12} className="text-slate-400" />
-                )}
-              </button>
-
-              {/* Export Payout History — printable PDF */}
-              <button
-                onClick={handleExportPayoutHistoryPDF}
-                disabled={exportLoadingKey === "payouts"}
-                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
-              >
-                <span>Export Payout History (PDF)</span>
-                {exportLoadingKey === "payouts" ? (
-                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
-                ) : (
-                  <Download size={12} className="text-slate-400" />
-                )}
-              </button>
-
-              {/* Export Refund Report — CSV download */}
-              <button
-                onClick={handleExportRefundsCSV}
-                disabled={exportLoadingKey === "refunds"}
-                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-[#4E3E2A]/5 dark:bg-slate-950 dark:border-slate-850 dark:hover:bg-slate-900/60 rounded-xl transition font-extrabold text-[#4E3E2A]/80 dark:text-slate-350 cursor-pointer flex items-center justify-between disabled:opacity-60"
-              >
-                <span>Export Refund Report (CSV)</span>
-                {exportLoadingKey === "refunds" ? (
-                  <RefreshCw size={12} className="animate-spin text-[#D45113]" />
-                ) : (
-                  <Download size={12} className="text-slate-400" />
-                )}
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1555,6 +1265,142 @@ export function PaymentWallet() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Log Manual Cash Refund Modal Dialog */}
+      <AnimatePresence>
+        {isAddingRefund && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            {/* Backdrop overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingRefund(false)}
+              className="fixed inset-0 bg-black/45 dark:bg-black/60 backdrop-blur-sm"
+            />
+
+            {/* Modal Dialog container box */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="relative w-full max-w-md bg-[#FFFCF5] dark:bg-slate-900 border border-[#4E3E2A]/15 dark:border-slate-800 rounded-3xl shadow-2xl p-6 md:p-8 z-10 overflow-hidden"
+            >
+              {/* Decorative top strip */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 via-orange-500 to-[#813405] absolute top-0 left-0" />
+
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-[#4E3E2A]/10 dark:border-slate-800 pb-4 mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-amber-500/10 rounded-xl text-amber-600">
+                    <AlertTriangle size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-[#813405] dark:text-[#F9A03F] tracking-tight">
+                      Log Manual Cash Refund
+                    </h3>
+                    <p className="text-[10px] text-[#4E3E2A]/50 dark:text-slate-400 font-bold uppercase tracking-wider">
+                      Record a direct cash refund to diner
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsAddingRefund(false)}
+                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-650 transition cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleAddRefund} className="space-y-4 text-xs font-semibold">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Order Number</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., TRC-12345"
+                    value={newOrderNumber}
+                    onChange={(e) => setNewOrderNumber(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Customer Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., John Doe"
+                    value={newCustomerName}
+                    onChange={(e) => setNewCustomerName(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Refund Amount (LKR)</label>
+                    <input
+                      type="number"
+                      required
+                      placeholder="e.g., 1500"
+                      value={newAmount}
+                      onChange={(e) => setNewAmount(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] dark:text-slate-200"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Refund Status</label>
+                    <select
+                      value={newStatus}
+                      onChange={(e) => setNewStatus(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] dark:text-slate-200"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Processing">Processing</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Reason for Refund</label>
+                  <textarea
+                    required
+                    placeholder="e.g., Order cancellation cash refund for missing items"
+                    value={newReason}
+                    onChange={(e) => setNewReason(e.target.value)}
+                    className="w-full h-20 p-2.5 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#D45113] leading-relaxed dark:text-slate-200 resize-none"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2.5 border-t border-[#4E3E2A]/10 dark:border-slate-800 pt-5 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingRefund(false)}
+                    className="px-4 py-2 bg-white dark:bg-slate-950 border border-[#4E3E2A]/10 dark:border-slate-800 text-[#4E3E2A]/70 dark:text-slate-350 rounded-xl hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-md cursor-pointer transition"
+                  >
+                    Log Refund
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
     </motion.div>
   );
 }

@@ -2,46 +2,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Zap, Truck, Tag, Heart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useRestaurants } from "@/context/RestaurantContext";
 
 import offer1 from "@/assets/offer1.jpg";
 import offer2 from "@/assets/offer2.png";
-import offer3 from "@/assets/offer3.jpg";
-import offer4 from "@/assets/offer4.png";
-import seafoodImg from "@/assets/seafood.png";
 
 import { C } from "@/utils/theme";
 
-/* ── Fallback Banner data ────────────────────────────────────────── */
-const fallbackBanners = [
-  {
-    id: "fallback-1",
-    image: offer1,
-    badge: { label: "Limited Time", icon: Clock, color: "#fff", bg: "rgba(212,81,19,0.90)" },
-    heading: "50% OFF",
-    subheading: "All Burgers Today",
-    description: "Sink your teeth into Trinco's juiciest burgers — half the price, double the joy.",
-    cta: "Order Now",
-    gradient: "linear-gradient(100deg, rgba(10,3,0,0.82) 0%, rgba(10,3,0,0.55) 45%, rgba(10,3,0,0.10) 100%)",
-    accent: "#F9A03F",
-    restaurant_id: null
-  },
-  {
-    id: "fallback-2",
-    image: offer2,
-    badge: { label: "Trending", icon: Zap, color: "#fff", bg: "rgba(139,92,246,0.85)" },
-    heading: "Buy 1 Get 1",
-    subheading: "Pizza Night is Here",
-    description: "Order any pizza and get a second one absolutely free. Share the love!",
-    cta: "Explore Deals",
-    gradient: "linear-gradient(100deg, rgba(10,3,0,0.80) 0%, rgba(10,3,0,0.50) 50%, rgba(10,3,0,0.08) 100%)",
-    accent: "#c084fc",
-    restaurant_id: null
-  }
-];
+
 
 type Banner = {
   id: string;
   image: string;
+  hasCustomImage: boolean;
   badge: { label: string; icon: any; color: string; bg: string };
   heading: string;
   subheading: string;
@@ -73,9 +46,28 @@ const slideVariants = {
 /* ── OffersBannerCarousel ────────────────────────────────────────── */
 export function OffersBannerCarousel({ onCtaClick }: { onCtaClick?: (bannerId: string) => void }) {
   const navigate = useNavigate();
+  const { offers } = useRestaurants();
   const [current, setCurrent] = useState(0);
   const [direction, setDirection] = useState(1);
-  const banners = fallbackBanners;
+
+  const banners = offers.map((offer) => ({
+    id: offer.id,
+    image: offer.bannerImage || offer1,
+    hasCustomImage: !!offer.bannerImage,
+    badge: {
+      label: offer.discountBadge || "Offer",
+      icon: Tag,
+      color: "#fff",
+      bg: "rgba(212,81,19,0.90)",
+    },
+    heading: offer.title,
+    subheading: offer.description,
+    description: offer.description,
+    cta: "Order Now",
+    gradient: "linear-gradient(100deg, rgba(10,3,0,0.82) 0%, rgba(10,3,0,0.55) 45%, rgba(10,3,0,0.10) 100%)",
+    accent: "#F9A03F",
+    restaurant_id: { _id: offer.restaurantId }
+  }));
 
   useEffect(() => {
     if (banners.length <= 1) return;
@@ -122,7 +114,8 @@ export function OffersBannerCarousel({ onCtaClick }: { onCtaClick?: (bannerId: s
             animate="center"
             exit="exit"
             transition={{ duration: 0.55, ease: [0.32, 0.72, 0, 1] }}
-            className="absolute inset-0"
+            className={`absolute inset-0 ${banner.hasCustomImage ? "cursor-pointer" : ""}`}
+            onClick={banner.hasCustomImage ? () => handleCtaClick(banner) : undefined}
           >
             {/* Background image */}
             <img
@@ -132,87 +125,98 @@ export function OffersBannerCarousel({ onCtaClick }: { onCtaClick?: (bannerId: s
               style={{ objectPosition: "center" }}
             />
 
-            {/* Gradient overlay */}
-            <div
-              className="absolute inset-0"
-              style={{ background: banner.gradient }}
-            />
+            {/* Gradient overlay - only if NOT custom designed image */}
+            {!banner.hasCustomImage && (
+              <div
+                className="absolute inset-0"
+                style={{ background: banner.gradient }}
+              />
+            )}
 
-            {/* Content */}
-            <div className="absolute inset-0 flex flex-col justify-center px-6 sm:px-14 max-w-[550px]">
-
-              {/* Badge */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15, duration: 0.35 }}
-                className="inline-flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full w-fit mb-3 sm:mb-4"
-                style={{
-                  background: banner.badge.bg,
-                  backdropFilter: "blur(8px)",
-                }}
-              >
-                <BadgeIcon size={10} className="sm:w-[11px] sm:h-[11px]" color="#fff" />
-                <span className="text-[9px] sm:text-[11px] font-black tracking-wide text-white uppercase">
-                  {banner.badge.label}
+            {/* Content overlay */}
+            {banner.hasCustomImage ? (
+              /* If custom image banner, render a clean subtle hover overlay indicator */
+              <div className="absolute inset-0 flex items-end justify-end p-4 sm:p-6 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                <span className="px-4 py-2 bg-black/60 backdrop-blur-md text-white text-[10px] sm:text-xs font-black rounded-full shadow-md">
+                  View Restaurant →
                 </span>
-              </motion.div>
+              </div>
+            ) : (
+              /* Default textual overlay for plain images */
+              <div className="absolute inset-0 flex flex-col justify-center px-6 sm:px-14 max-w-[550px]">
+                {/* Badge */}
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15, duration: 0.35 }}
+                  className="inline-flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full w-fit mb-3 sm:mb-4"
+                  style={{
+                    background: banner.badge.bg,
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <BadgeIcon size={10} className="sm:w-[11px] sm:h-[11px]" color="#fff" />
+                  <span className="text-[9px] sm:text-[11px] font-black tracking-wide text-white uppercase">
+                    {banner.badge.label}
+                  </span>
+                </motion.div>
 
-              {/* Heading */}
-              <motion.h2
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.20, duration: 0.40 }}
-                className="font-black leading-[0.95] mb-1.5"
-                style={{
-                  fontSize: "clamp(1.5rem, 8vw, 3.8rem)",
-                  color: "#fff",
-                  textShadow: "0 2px 20px rgba(0,0,0,0.5)",
-                }}
-              >
-                {banner.heading}
-              </motion.h2>
+                {/* Heading */}
+                <motion.h2
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.20, duration: 0.40 }}
+                  className="font-black leading-[0.95] mb-1.5"
+                  style={{
+                    fontSize: "clamp(1.5rem, 8vw, 3.8rem)",
+                    color: "#fff",
+                    textShadow: "0 2px 20px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {banner.heading}
+                </motion.h2>
 
-              {/* Subheading */}
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25, duration: 0.38 }}
-                className="font-black text-sm sm:text-xl mb-1.5 sm:mb-3 leading-tight"
-                style={{ color: banner.accent }}
-              >
-                {banner.subheading}
-              </motion.p>
+                {/* Subheading */}
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.25, duration: 0.38 }}
+                  className="font-black text-sm sm:text-xl mb-1.5 sm:mb-3 leading-tight"
+                  style={{ color: banner.accent }}
+                >
+                  {banner.subheading}
+                </motion.p>
 
-              {/* Description */}
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.30, duration: 0.38 }}
-                className="text-[10px] sm:text-sm leading-snug sm:leading-relaxed mb-3 sm:mb-6 max-w-[240px] sm:max-w-xs"
-                style={{ color: "rgba(255,255,255,0.80)" }}
-              >
-                {banner.description}
-              </motion.p>
+                {/* Description */}
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.30, duration: 0.38 }}
+                  className="text-[10px] sm:text-sm leading-snug sm:leading-relaxed mb-3 sm:mb-6 max-w-[240px] sm:max-w-xs"
+                  style={{ color: "rgba(255,255,255,0.80)" }}
+                >
+                  {banner.description}
+                </motion.p>
 
-              {/* CTA */}
-              <motion.button
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35, duration: 0.35 }}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                className="w-fit px-4 py-1.5 sm:px-7 sm:py-3 rounded-xl sm:rounded-2xl text-[11px] sm:text-sm font-black tracking-wide"
-                style={{
-                  background: `linear-gradient(110deg, ${C.brown}, ${C.burnt} 60%, ${C.orange})`,
-                  color: "#fff",
-                  boxShadow: "0 6px 20px rgba(212,81,19,0.40)",
-                }}
-                onClick={() => handleCtaClick(banner)}
-              >
-                {banner.cta} →
-              </motion.button>
-            </div>
+                {/* CTA */}
+                <motion.button
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35, duration: 0.35 }}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="w-fit px-4 py-1.5 sm:px-7 sm:py-3 rounded-xl sm:rounded-2xl text-[11px] sm:text-sm font-black tracking-wide"
+                  style={{
+                    background: `linear-gradient(110deg, ${C.brown}, ${C.burnt} 60%, ${C.orange})`,
+                    color: "#fff",
+                    boxShadow: "0 6px 20px rgba(212,81,19,0.40)",
+                  }}
+                  onClick={() => handleCtaClick(banner)}
+                >
+                  {banner.cta} →
+                </motion.button>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
 

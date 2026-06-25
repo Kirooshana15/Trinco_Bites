@@ -4,13 +4,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingBag, Clock,
   CheckCircle2, XCircle, Search, Filter, RefreshCw, ChevronRight,
-  Printer, Download, Eye, Check, X, Play, ShieldAlert,
+  Printer, Download, Eye, Check, X, Play, ShieldAlert, AlertTriangle,
   Calendar, Phone, MapPin, CreditCard, Clipboard, MessageSquare,
   ArrowUpRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getCartItemPrices, formatPrice, VAT_RATE } from "@/utils/pricing";
+import { apiRequest } from "@/utils/api";
 
 // High-fidelity Order Item Type
 interface OrderItem {
@@ -50,6 +51,7 @@ interface Order {
   deliveryFee: number;
   total: number;
   orderDate: string;
+  createdAt: string;
   status: OrderStatus;
   notes?: string;
   timeline: { status: OrderStatus; time: string }[];
@@ -101,29 +103,68 @@ const syncOrderStatusToCustomerDb = (
   }
 };
 
-function mapCustomerOrderToRestaurantOrder(co: any): Order {
-  const timeStr = new Date(co.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  
-  let mappedStatus: OrderStatus = "Pending";
-  if (co.status === "Delivered" || co.status === "Out for Delivery") mappedStatus = "Completed";
-  else if (co.status === "Cancelled") mappedStatus = "Cancelled";
-  else if (co.status === "Preparing") mappedStatus = "Preparing";
-  else mappedStatus = "Pending";
+function formatOrderDate(dateString: string): string {
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
 
-  const timeline = [
-    { status: "Pending" as OrderStatus, time: timeStr }
-  ];
-  if (co.status === "Preparing") {
-    timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
-    timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
+    const isToday = date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday = date.getDate() === yesterday.getDate() &&
+      date.getMonth() === yesterday.getMonth() &&
+      date.getFullYear() === yesterday.getFullYear();
+
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (isToday) {
+      return `Today, ${timeStr}`;
+    } else if (isYesterday) {
+      return `Yesterday, ${timeStr}`;
+    } else {
+      const dateStr = date.toLocaleDateString([], { month: 'short', day: '2-digit' });
+      return `${dateStr}, ${timeStr}`;
+    }
+  } catch (e) {
+    return "Today, 12:00 PM";
   }
-  if (co.status === "Delivered" || co.status === "Out for Delivery") {
-    timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
-    timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
-    timeline.push({ status: "Completed" as OrderStatus, time: timeStr });
-  }
-  if (co.status === "Cancelled") {
-    timeline.push({ status: "Cancelled" as OrderStatus, time: timeStr });
+}
+
+function mapCustomerOrderToRestaurantOrder(co: any): Order {
+  const timeline: { status: OrderStatus; time: string }[] = [];
+  let mappedStatus: OrderStatus = "Pending";
+
+  if (co.statusTimeline && Array.isArray(co.statusTimeline) && co.statusTimeline.length > 0) {
+    co.statusTimeline.forEach((node: any) => {
+      const formattedTime = new Date(node.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      timeline.push({ status: node.status as OrderStatus, time: formattedTime });
+    });
+    if (timeline.length > 0) {
+      mappedStatus = timeline[timeline.length - 1].status;
+    }
+  } else {
+    const timeStr = new Date(co.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (co.status === "Delivered" || co.status === "Out for Delivery") mappedStatus = "Completed";
+    else if (co.status === "Cancelled") mappedStatus = "Cancelled";
+    else if (co.status === "Preparing") mappedStatus = "Preparing";
+    else mappedStatus = "Pending";
+
+    timeline.push({ status: "Pending" as OrderStatus, time: timeStr });
+    if (co.status === "Preparing") {
+      timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
+      timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
+    }
+    if (co.status === "Delivered" || co.status === "Out for Delivery") {
+      timeline.push({ status: "Accepted" as OrderStatus, time: timeStr });
+      timeline.push({ status: "Preparing" as OrderStatus, time: timeStr });
+      timeline.push({ status: "Completed" as OrderStatus, time: timeStr });
+    }
+    if (co.status === "Cancelled") {
+      timeline.push({ status: "Cancelled" as OrderStatus, time: timeStr });
+    }
   }
 
   return {
@@ -149,7 +190,8 @@ function mapCustomerOrderToRestaurantOrder(co: any): Order {
     tax: co.tax ?? Math.round(co.subtotal * VAT_RATE),
     deliveryFee: co.deliveryFee ?? (co.orderType === "Delivery" ? 250 : 0),
     total: co.subtotal + (co.deliveryFee ?? (co.orderType === "Delivery" ? 250 : 0)) + (co.tax ?? Math.round(co.subtotal * VAT_RATE)),
-    orderDate: `Today, ${timeStr}`,
+    orderDate: formatOrderDate(co.createdAt),
+    createdAt: co.createdAt,
     status: mappedStatus,
     timeline: timeline,
     notes: co.notes || undefined
@@ -157,206 +199,10 @@ function mapCustomerOrderToRestaurantOrder(co: any): Order {
 }
 
 export function OrderManagement() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const routerState = useRouterState();
   const routeOrderId = new URLSearchParams(routerState.location.searchStr).get("orderId");
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: "TB-8942",
-      restaurantId: "trinco-spice",
-      customerName: "Nithya R.",
-      customerPhone: "077 123 4567",
-      deliveryAddress: "142 Dockyard Rd, Trincomalee",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "sh-br1", name: "Chicken Biryani", price: 1050, quantity: 1 },
-        { id: "sh-mj1", name: "Lime Mojito", price: 450, quantity: 1 }
-      ],
-      paymentMethod: "Cash on Delivery",
-      subtotal: 1500,
-      tax: 270,
-      deliveryFee: 250,
-      total: 2020,
-      orderDate: "Today, 12:15 PM",
-      status: "Completed",
-      notes: "Deliver near the beach resort gate.",
-      timeline: [
-        { status: "Pending", time: "11:55 AM" },
-        { status: "Accepted", time: "12:02 PM" },
-        { status: "Preparing", time: "12:05 PM" },
-        { status: "Completed", time: "12:15 PM" }
-      ]
-    },
-    {
-      id: "TB-8941",
-      restaurantId: "trinco-spice",
-      customerName: "Daniel J.",
-      customerPhone: "071 987 6543",
-      deliveryAddress: "45 Uppuveli Beach Rd, Trincomalee",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "sh-kt1", name: "Chicken Kottu", price: 850, quantity: 2 }
-      ],
-      paymentMethod: "Card Payment",
-      subtotal: 1700,
-      tax: 306,
-      deliveryFee: 250,
-      total: 2256,
-      orderDate: "Today, 12:02 PM",
-      status: "Preparing",
-      notes: "Extra spicy and cheese if possible.",
-      timeline: [
-        { status: "Pending", time: "11:48 AM" },
-        { status: "Accepted", time: "11:54 AM" },
-        { status: "Preparing", time: "12:02 PM" }
-      ]
-    },
-    {
-      id: "TB-8940",
-      restaurantId: "ocean-pearl",
-      customerName: "Archana S.",
-      customerPhone: "072 456 7890",
-      deliveryAddress: "Post Office Junction, Trincomalee Town",
-      orderType: "Self Pickup" as const,
-      items: [
-        { id: "sh-fr5", name: "Seafood Fried Rice", price: 1200, quantity: 1 }
-      ],
-      paymentMethod: "Card Payment",
-      subtotal: 1200,
-      tax: 216,
-      deliveryFee: 0,
-      total: 1416,
-      orderDate: "Today, 11:48 AM",
-      status: "Pending",
-      timeline: [
-        { status: "Pending", time: "11:48 AM" }
-      ]
-    },
-    {
-      id: "TB-8939",
-      restaurantId: "biryani-palace",
-      customerName: "Ramesh K.",
-      customerPhone: "077 555 1234",
-      deliveryAddress: "Alles Garden, Nilaveli Rd, Trincomalee",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "sh-fr6", name: "Veg Fried Rice", price: 700, quantity: 1 },
-        { id: "sh-mj5", name: "Apple Mojito", price: 480, quantity: 1 }
-      ],
-      paymentMethod: "Cash on Delivery",
-      subtotal: 1180,
-      tax: 212,
-      deliveryFee: 250,
-      total: 1642,
-      orderDate: "Today, 10:15 AM",
-      status: "Completed",
-      notes: "Contact upon arrival.",
-      timeline: [
-        { status: "Pending", time: "09:50 AM" },
-        { status: "Accepted", time: "09:55 AM" },
-        { status: "Preparing", time: "10:00 AM" },
-        { status: "Completed", time: "10:15 AM" }
-      ]
-    },
-    {
-      id: "TB-8938",
-      restaurantId: "burger-co",
-      customerName: "Shamil M.",
-      customerPhone: "076 777 8888",
-      deliveryAddress: "Inner Harbour Road, Trincomalee",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "f7", name: "Double Cheeseburger", price: 1250, quantity: 1 }
-      ],
-      paymentMethod: "Card Payment",
-      subtotal: 1250,
-      tax: 225,
-      deliveryFee: 250,
-      total: 1725,
-      orderDate: "Today, 09:30 AM",
-      status: "Cancelled",
-      notes: "Cancelled by customer before acceptance.",
-      timeline: [
-        { status: "Pending", time: "09:25 AM" },
-        { status: "Cancelled", time: "09:30 AM" }
-      ],
-      cancellation: {
-        cancelledBy: "User",
-        reason: "Ordered by mistake / Change of mind",
-        refundInitiated: true
-      }
-    },
-    {
-      id: "TB-8937",
-      restaurantId: "trinco-spice",
-      customerName: "Priyantha D.",
-      customerPhone: "078 888 9999",
-      deliveryAddress: "Koneswaram Temple Road, Trincomalee",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "sh-kt3", name: "Mutton Kottu", price: 1250, quantity: 1 },
-        { id: "sh-mj2", name: "Passion Mojito", price: 550, quantity: 1 }
-      ],
-      paymentMethod: "Cash on Delivery",
-      subtotal: 1800,
-      tax: 324,
-      deliveryFee: 250,
-      total: 2374,
-      orderDate: "Yesterday, 08:45 PM",
-      status: "Completed",
-      timeline: [
-        { status: "Pending", time: "08:15 PM" },
-        { status: "Accepted", time: "08:20 PM" },
-        { status: "Preparing", time: "08:25 PM" },
-        { status: "Completed", time: "08:45 PM" }
-      ]
-    },
-    {
-      id: "TB-8936",
-      restaurantId: "ocean-pearl",
-      customerName: "Thilini W.",
-      customerPhone: "077 444 3333",
-      deliveryAddress: "12 Beach Loop Rd, Uppuveli",
-      orderType: "Self Pickup" as const,
-      items: [
-        { id: "sh-fr4", name: "Prawn Fried Rice", price: 1350, quantity: 1 },
-        { id: "sh-mj2", name: "Passion Mojito", price: 550, quantity: 1 }
-      ],
-      paymentMethod: "Card Payment",
-      subtotal: 1900,
-      tax: 342,
-      deliveryFee: 0,
-      total: 2242,
-      orderDate: "Yesterday, 07:15 PM",
-      status: "Accepted",
-      timeline: [
-        { status: "Pending", time: "07:05 PM" },
-        { status: "Accepted", time: "07:15 PM" }
-      ]
-    },
-    {
-      id: "TB-8935",
-      restaurantId: "biryani-palace",
-      customerName: "Kirushanth R.",
-      customerPhone: "076 111 2222",
-      deliveryAddress: "Green Road, Trincomalee Town",
-      orderType: "Delivery" as const,
-      items: [
-        { id: "sh-kt5", name: "Seafood Kottu", price: 1100, quantity: 1 },
-        { id: "sh-mj1", name: "Lime Mojito", price: 450, quantity: 1 }
-      ],
-      paymentMethod: "Cash on Delivery",
-      subtotal: 1550,
-      tax: 279,
-      deliveryFee: 250,
-      total: 2079,
-      orderDate: "Yesterday, 06:30 PM",
-      status: "Pending",
-      timeline: [
-        { status: "Pending", time: "06:30 PM" }
-      ]
-    }
-  ]);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"All" | OrderStatus>("All");
@@ -364,22 +210,24 @@ export function OrderManagement() {
   const [selectedPayment, setSelectedPayment] = useState<"All" | "Cash on Delivery" | "Card Payment">("All");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const fetchRestaurantOrders = async () => {
+    if (!token) return;
+    try {
+      const fetched = await apiRequest<any[]>("/orders", { token });
+      const mappedOrders = fetched.map(mapCustomerOrderToRestaurantOrder);
+      setOrders(mappedOrders);
+    } catch (err) {
+      console.error("Error loading restaurant orders from backend", err);
+      toast.error("Failed to load live orders");
+    }
+  };
+
   // Sync customer orders on mount
   useEffect(() => {
-    const saved = localStorage.getItem("trinco_orders");
-    if (saved) {
-      try {
-        const customerOrders = JSON.parse(saved);
-        const mappedCustomerOrders = customerOrders.map(mapCustomerOrderToRestaurantOrder);
-        setOrders((prev) => {
-          const mockOnly = prev.filter((o) => !o.id.startsWith("TRC-"));
-          return [...mappedCustomerOrders, ...mockOnly];
-        });
-      } catch (err) {
-        console.error("Error loading customer orders", err);
-      }
+    if (token) {
+      fetchRestaurantOrders();
     }
-  }, []);
+  }, [token]);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -395,7 +243,7 @@ export function OrderManagement() {
     const targetOrder = orders.find((order) => order.id === routeOrderId);
     if (!targetOrder) return;
 
-    setSearchTerm(routeOrderId);
+    // Do not set searchTerm so the full orders list is shown in the table
     setActiveTab("All");
     setSelectedTimeframe("30days");
     setSelectedPayment("All");
@@ -412,7 +260,7 @@ export function OrderManagement() {
   // Confirm Interactive Cancellation
   const handleConfirmCancellation = () => {
     if (!cancellationOrder) return;
-    
+
     const finalReason = cancellationReason === "Other" ? customReason : cancellationReason;
     if (!finalReason.trim()) {
       toast.error("Please provide a cancellation reason");
@@ -428,6 +276,35 @@ export function OrderManagement() {
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const orderId = cancellationOrder.id;
 
+    if (orderId.startsWith("TRC-") && token) {
+      const isApproved = cancellationOrder.paymentMethod === "Card Payment";
+      apiRequest(`/orders/${orderId}/status`, {
+        method: "PATCH",
+        token,
+        body: {
+          status: "Cancelled",
+          cancellationReason: finalReason,
+          refundInitiated: isApproved,
+        },
+      })
+        .then(() => {
+          if (cancellationOrder.paymentMethod === "Card Payment") {
+            toast.success(`Refund of Rs. ${cancellationOrder.total.toLocaleString()} processed successfully to customer card.`);
+          } else {
+            toast.success(`Order ${orderId} cancelled.`);
+          }
+          fetchRestaurantOrders();
+        })
+        .catch((err) => {
+          console.error("Failed to cancel order on backend", err);
+          toast.error("Failed to cancel order on server");
+        });
+      setCancellationOrder(null);
+      setCancellationReason("");
+      setCustomReason("");
+      return;
+    }
+
     setOrders((prev) =>
       prev.map((order) => {
         if (order.id === orderId) {
@@ -442,7 +319,7 @@ export function OrderManagement() {
             cancellation: {
               cancelledBy: cancelledBy,
               reason: finalReason,
-              refundInitiated: order.paymentMethod === "Card Payment" && isRefundApproved
+              refundInitiated: order.paymentMethod === "Card Payment"
             }
           };
 
@@ -454,15 +331,7 @@ export function OrderManagement() {
             setActiveInvoiceOrder(updatedOrder);
           }
 
-          // Persist to customer DB if it is a customer-placed order
-          if (orderId.startsWith("TRC-")) {
-            syncOrderStatusToCustomerDb(orderId, "Cancelled", {
-              reason: finalReason,
-              refundInitiated: order.paymentMethod === "Card Payment" && isRefundApproved,
-            });
-          }
-
-          if (order.paymentMethod === "Card Payment" && isRefundApproved) {
+          if (order.paymentMethod === "Card Payment") {
             toast.success(`Refund of Rs. ${order.total.toLocaleString()} processed successfully to customer card.`);
           } else {
             toast.success(`Order ${orderId} cancelled.`);
@@ -482,22 +351,10 @@ export function OrderManagement() {
   // Trigger loading spinner simulation
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => {
+    fetchRestaurantOrders().finally(() => {
       setIsRefreshing(false);
-      // Reload customer orders from localStorage
-      const saved = localStorage.getItem("trinco_orders");
-      if (saved) {
-        try {
-          const customerOrders = JSON.parse(saved);
-          const mappedCustomerOrders = customerOrders.map(mapCustomerOrderToRestaurantOrder);
-          setOrders((prev) => {
-            const mockOnly = prev.filter((o) => !o.id.startsWith("TRC-"));
-            return [...mappedCustomerOrders, ...mockOnly];
-          });
-        } catch {}
-      }
       toast.success("Orders database refreshed successfully");
-    }, 700);
+    });
   };
 
   const isValidTransition = (current: OrderStatus, next: OrderStatus): boolean => {
@@ -510,15 +367,41 @@ export function OrderManagement() {
   };
 
   // Manage Order Lifecycle
-  const updateOrderStatus = (orderId: string, nextStatus: OrderStatus) => {
+  const updateOrderStatus = async (orderId: string, nextStatus: OrderStatus) => {
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     // Find the order to validate its current status
     const targetOrder = orders.find((o) => o.id === orderId);
     if (!targetOrder) return;
-    
+
     if (!isValidTransition(targetOrder.status, nextStatus)) {
       toast.error(`Invalid status transition from ${targetOrder.status} to ${nextStatus}`);
+      return;
+    }
+
+    // Map nextStatus to backend status string
+    let backendStatus = "Order Received";
+    if (nextStatus === "Accepted" || nextStatus === "Preparing") {
+      backendStatus = "Preparing";
+    } else if (nextStatus === "Completed") {
+      backendStatus = "Delivered";
+    } else if (nextStatus === "Cancelled") {
+      backendStatus = "Cancelled";
+    }
+
+    if (orderId.startsWith("TRC-") && token) {
+      try {
+        await apiRequest(`/orders/${orderId}/status`, {
+          method: "PATCH",
+          token,
+          body: { status: nextStatus },
+        });
+        toast.success(`Order ${orderId} updated to: ${nextStatus}`);
+        fetchRestaurantOrders(); // Reload to get the official state
+      } catch (err) {
+        console.error("Failed to update status on backend", err);
+        toast.error("Failed to update order status on server");
+      }
       return;
     }
 
@@ -527,18 +410,13 @@ export function OrderManagement() {
         if (order.id === orderId) {
           const updatedTimeline = [...order.timeline, { status: nextStatus, time: timeNow }];
           const updatedOrder = { ...order, status: nextStatus, timeline: updatedTimeline };
-          
+
           // Sync changes in side drawers if open
           if (activeDrawerOrder?.id === orderId) {
             setActiveDrawerOrder(updatedOrder);
           }
           if (activeInvoiceOrder?.id === orderId) {
             setActiveInvoiceOrder(updatedOrder);
-          }
-
-          // Persist to customer DB if it is a customer-placed order
-          if (orderId.startsWith("TRC-")) {
-            syncOrderStatusToCustomerDb(orderId, nextStatus);
           }
 
           toast.success(`Order ${orderId} updated to: ${nextStatus}`);
@@ -550,7 +428,7 @@ export function OrderManagement() {
   };
 
   // Search & Filter Logic
-  const filteredOrders = orders.filter((order) => {
+  const baseFilteredOrders = orders.filter((order) => {
     if (user?.restaurantId && order.restaurantId && order.restaurantId !== user.restaurantId) {
       return false;
     }
@@ -560,16 +438,24 @@ export function OrderManagement() {
       order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.customerPhone.includes(searchTerm);
 
-    const matchesStatus = activeTab === "All" || order.status === activeTab;
-
     const matchesPayment = selectedPayment === "All" || order.paymentMethod === selectedPayment;
 
-    // Filter timeframe (simulated dates based on "Today" or "Yesterday")
-    const matchesTime = selectedTimeframe === "30days" || 
-      (selectedTimeframe === "7days" && (order.orderDate.includes("Today") || order.orderDate.includes("Yesterday"))) ||
-      (selectedTimeframe === "today" && order.orderDate.includes("Today"));
+    // Filter timeframe (real date comparisons)
+    const orderTime = new Date(order.createdAt).getTime();
+    const nowTime = new Date().getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesTime;
+    const matchesTime = selectedTimeframe === "30days"
+      ? (nowTime - orderTime <= 30 * oneDayMs)
+      : selectedTimeframe === "7days"
+        ? (nowTime - orderTime <= 7 * oneDayMs)
+        : (nowTime - orderTime <= 1 * oneDayMs); // today
+
+    return matchesSearch && matchesPayment && matchesTime;
+  });
+
+  const filteredOrders = baseFilteredOrders.filter((order) => {
+    return activeTab === "All" || order.status === activeTab;
   });
 
   // Reset page when filters change
@@ -586,11 +472,17 @@ export function OrderManagement() {
 
   // Calculate high-fidelity stats
   const getStats = () => {
-    const activeTimeframeOrders = orders.filter(o => 
-      selectedTimeframe === "30days" || 
-      (selectedTimeframe === "7days" && (o.orderDate.includes("Today") || o.orderDate.includes("Yesterday"))) ||
-      (selectedTimeframe === "today" && o.orderDate.includes("Today"))
-    );
+    const activeTimeframeOrders = orders.filter(o => {
+      const orderTime = new Date(o.createdAt).getTime();
+      const nowTime = new Date().getTime();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      return selectedTimeframe === "30days"
+        ? (nowTime - orderTime <= 30 * oneDayMs)
+        : selectedTimeframe === "7days"
+          ? (nowTime - orderTime <= 7 * oneDayMs)
+          : (nowTime - orderTime <= 1 * oneDayMs);
+    });
 
     const totalOrders = activeTimeframeOrders.length;
     const pendingOrders = activeTimeframeOrders.filter((o) => o.status === "Pending").length;
@@ -676,7 +568,7 @@ export function OrderManagement() {
       className="flex flex-col gap-6"
     >
       {/* 1. Header & Page Control Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">
             Order Management
@@ -687,7 +579,7 @@ export function OrderManagement() {
         </div>
 
         {/* Filters & Actions bar */}
-        <div className="flex items-center flex-wrap gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           {/* Timeframe Selector Pill */}
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border border-slate-200/60 dark:border-slate-800/80 p-1 rounded-xl flex items-center shadow-sm">
             {(["today", "7days", "30days"] as const).map((t) => (
@@ -695,8 +587,8 @@ export function OrderManagement() {
                 key={t}
                 onClick={() => setSelectedTimeframe(t)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 capitalize ${selectedTimeframe === t
-                    ? "bg-[#71A066] text-white shadow-sm"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                  ? "bg-[#71A066] text-white shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
                   }`}
               >
                 {t === "7days" ? "Last 7 Days" : t === "30days" ? "Last 30 Days" : "Today"}
@@ -817,7 +709,7 @@ export function OrderManagement() {
       {/* 3. Filtering & Search Toolbar */}
       <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-4 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          
+
           {/* Search bar input container */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-3 text-slate-400" size={16} />
@@ -829,7 +721,7 @@ export function OrderManagement() {
               className="pl-10 pr-4 py-2.5 w-full bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800/60 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-[#71A066] dark:focus:border-emerald-500 transition-all duration-200 shadow-inner"
             />
             {searchTerm && (
-              <button 
+              <button
                 onClick={() => setSearchTerm("")}
                 className="absolute right-3 top-3 text-slate-400 hover:text-slate-650 text-xs font-bold"
               >
@@ -859,7 +751,7 @@ export function OrderManagement() {
         {/* Filter Navigation Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar border-t border-slate-100 dark:border-slate-800/60 pt-3">
           {(["All", "Pending", "Accepted", "Preparing", "Completed", "Cancelled"] as const).map((tab) => {
-            const count = tab === "All" ? orders.length : orders.filter(o => o.status === tab).length;
+            const count = tab === "All" ? baseFilteredOrders.length : baseFilteredOrders.filter(o => o.status === tab).length;
             const tabColors: Record<string, string> = {
               All: "bg-[#71A066] text-white",
               Pending: "bg-amber-500 text-white",
@@ -873,16 +765,14 @@ export function OrderManagement() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === tab
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === tab
                     ? tabColors[tab] || "bg-slate-800 text-white"
                     : "text-slate-500 hover:text-slate-850 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                }`}
+                  }`}
               >
                 <span>{tab}</span>
-                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
-                  activeTab === tab ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350"
-                }`}>{count}</span>
+                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${activeTab === tab ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350"
+                  }`}>{count}</span>
               </button>
             );
           })}
@@ -950,13 +840,16 @@ export function OrderManagement() {
                             <div className="flex flex-col min-w-0 truncate">
                               <span className="font-bold text-slate-800 dark:text-slate-200 truncate" title={order.customerName}>{order.customerName}</span>
                               <span className="text-[9px] text-slate-400 font-medium truncate">{order.customerPhone}</span>
+                              <span className="text-[9px] font-bold text-[#71A066] dark:text-emerald-400 mt-0.5 truncate" title={order.orderType === "Delivery" ? `Delivery: ${order.deliveryAddress}` : "Self Pickup"}>
+                                {order.orderType === "Delivery" ? `🛵 ${order.deliveryAddress}` : "🛍️ Pickup"}
+                              </span>
                             </div>
                           </div>
                         </td>
                         <td className="py-4 px-4">
-                          <div className="flex flex-col gap-1 items-start max-w-full">
+                          <div className="flex flex-col gap-1.5 items-start max-w-full">
                             {order.items.map((it) => (
-                              <div key={it.id} className="flex flex-col gap-0.5 items-start">
+                              <div key={it.id} className="flex flex-col gap-0.5 items-start w-full">
                                 <span
                                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30"
                                   title={`${it.quantity}x ${it.name}`}
@@ -964,6 +857,23 @@ export function OrderManagement() {
                                   <span className="text-[#71A066] dark:text-emerald-450 font-black">{it.quantity}x</span>
                                   <span className="truncate max-w-[180px]">{it.name}</span>
                                 </span>
+                                
+                                {/* Item details: Size and Extras */}
+                                {(it.selectedSize || (it.selectedExtras && it.selectedExtras.length > 0)) && (
+                                  <div className="flex flex-wrap items-center gap-1 pl-2 text-[9px] text-slate-400 dark:text-slate-500 font-bold">
+                                    {it.selectedSize && (
+                                      <span className="px-1 bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 rounded border border-orange-100 dark:border-orange-900/30">
+                                        {it.selectedSize}
+                                      </span>
+                                    )}
+                                    {it.selectedExtras && it.selectedExtras.length > 0 && (
+                                      <span className="italic truncate max-w-[180px]">
+                                        + {it.selectedExtras.map((e) => e.name).join(", ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
                                 {it.instructions && (
                                   <span className="text-[9px] font-semibold text-[#813405] dark:text-[#F8DDA4] pl-2 flex items-center gap-1">
                                     ↳ 📝 {it.instructions}
@@ -1112,11 +1022,10 @@ export function OrderManagement() {
                 <button
                   key={pg}
                   onClick={() => setCurrentPage(pg)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 cursor-pointer ${
-                    currentPage === pg
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 cursor-pointer ${currentPage === pg
                       ? "bg-[#71A066] text-white shadow-sm"
                       : "border border-slate-200 dark:border-slate-800/60 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  }`}
+                    }`}
                 >
                   {pg}
                 </button>
@@ -1171,7 +1080,7 @@ export function OrderManagement() {
 
               {/* Drawer Content Body */}
               <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
-                
+
                 {/* Cancellation Alert Banner */}
                 {activeDrawerOrder.status === "Cancelled" && (
                   <div className="bg-rose-500/5 dark:bg-rose-500/10 p-4 border border-rose-500/20 rounded-xl space-y-2 text-xs">
@@ -1179,7 +1088,7 @@ export function OrderManagement() {
                       <XCircle size={14} />
                       <span className="text-[10px] font-bold uppercase tracking-wider">Order Cancelled</span>
                     </div>
-                    
+
                     <div className="space-y-1.5 text-slate-700 dark:text-slate-350">
                       <div className="flex justify-between">
                         <span className="text-slate-400 font-semibold">Cancelled By:</span>
@@ -1212,7 +1121,7 @@ export function OrderManagement() {
                 {/* 1. Customer Information Card */}
                 <div className="bg-slate-50/50 dark:bg-slate-800/10 p-4 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-3.5">
                   <span className="text-[10px] font-bold text-[#71A066] dark:text-emerald-450 uppercase tracking-wider">Customer Details</span>
-                  
+
                   <div className="space-y-3 text-xs text-slate-700 dark:text-slate-350">
                     <div className="flex items-center gap-2">
                       <ShoppingBag size={12} className="text-slate-400" />
@@ -1278,22 +1187,22 @@ export function OrderManagement() {
                               {item.quantity}x {formatPrice(prices.unitTotal)}
                             </span>
                           </div>
-                          
-                          {item.appliedOffer?.id === "O-205" && (
-                             <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100/30 flex items-center justify-between text-[11px] text-emerald-700 dark:text-emerald-450 font-bold">
-                               <span className="flex items-center gap-1">
-                                 🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]
-                               </span>
-                               <span className="font-black">Rs 0</span>
-                             </div>
-                           )}
+
+                          {(item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") && (
+                            <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100/30 flex items-center justify-between text-[11px] text-emerald-700 dark:text-emerald-450 font-bold">
+                              <span className="flex items-center gap-1">
+                                🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]
+                              </span>
+                              <span className="font-black">Rs 0</span>
+                            </div>
+                          )}
 
                           <div className="text-[11px] text-slate-500 pl-2 space-y-0.5 border-l border-orange-200">
                             <div className="flex justify-between">
                               <span>Base Price ({item.quantity}x {formatPrice(prices.basePrice)})</span>
                               <span>{formatPrice(prices.totalBasePrice)}</span>
                             </div>
-                            
+
                             {item.selectedExtras && item.selectedExtras.length > 0 && (
                               <>
                                 {item.selectedExtras.map((extra, idx) => (
@@ -1308,7 +1217,7 @@ export function OrderManagement() {
                                 </div>
                               </>
                             )}
-                            
+
                             <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300 pt-1 border-t border-slate-100 dark:border-slate-850 mt-1">
                               <span>Item Total</span>
                               <span>{formatPrice(prices.itemTotal)}</span>
@@ -1373,7 +1282,7 @@ export function OrderManagement() {
 
                 <div className="space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-4">
                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Order Timeline</span>
-                  
+
                   <div className="flex flex-col gap-4 pl-1 border-l border-slate-100 dark:border-slate-800 ml-2 py-1">
                     {activeDrawerOrder.timeline.map((node, index) => {
                       const colors: Record<OrderStatus, string> = {
@@ -1576,12 +1485,12 @@ export function OrderManagement() {
                                     </span>
                                   )}
                                 </div>
-                                {item.appliedOffer?.id === "O-205" && (
-                                   <div className="mt-2 p-1.5 rounded bg-emerald-50/55 dark:bg-emerald-950/10 text-[10px] text-emerald-700 dark:text-emerald-450 font-bold flex justify-between">
-                                     <span>🎁 {item.quantity}x {item.name} (BOGO Free Item)</span>
-                                     <span>Rs 0</span>
-                                   </div>
-                                 )}
+                                {(item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") && (
+                                  <div className="mt-2 p-1.5 rounded bg-emerald-50/55 dark:bg-emerald-950/10 text-[10px] text-emerald-700 dark:text-emerald-450 font-bold flex justify-between">
+                                    <span>🎁 {item.quantity}x {item.name} (BOGO Free Item)</span>
+                                    <span>Rs 0</span>
+                                  </div>
+                                )}
                                 {item.selectedExtras && item.selectedExtras.length > 0 && (
                                   <div className="mt-1 space-y-0.5 pl-2 border-l border-orange-200 text-[10px] text-slate-400">
                                     {item.selectedExtras.map((extra, idx) => (
@@ -1723,11 +1632,10 @@ export function OrderManagement() {
                           setCancellationReason(reason);
                           if (reason !== "Other") setCustomReason("");
                         }}
-                        className={`w-full text-left py-2.5 px-3.5 rounded-xl font-semibold border transition duration-150 ${
-                          cancellationReason === reason
+                        className={`w-full text-left py-2.5 px-3.5 rounded-xl font-semibold border transition duration-150 ${cancellationReason === reason
                             ? "bg-slate-100 dark:bg-slate-800/80 border-slate-350 dark:border-slate-700 text-slate-800 dark:text-white"
                             : "border-slate-150 dark:border-slate-850 text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
-                        }`}
+                          }`}
                       >
                         {reason}
                       </button>
@@ -1752,7 +1660,7 @@ export function OrderManagement() {
                 {/* 3. Refund Information Section */}
                 <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payment & Refund Details</span>
-                  
+
                   <div className="bg-slate-50 dark:bg-slate-850/30 p-3.5 rounded-xl border border-slate-150 dark:border-slate-800/60 space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-slate-500 font-semibold">Payment Method:</span>
@@ -1764,26 +1672,15 @@ export function OrderManagement() {
                     </div>
 
                     {cancellationOrder.paymentMethod === "Card Payment" ? (
-                      <div className="border-t border-slate-200/50 dark:border-slate-800/80 pt-2.5 mt-1.5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-emerald-600 dark:text-emerald-450">Process Card Refund</span>
-                            <span className="text-[10px] text-slate-400 leading-tight">Rs. {cancellationOrder.total.toLocaleString()} will be auto-credited.</span>
+                      <div className="border-t border-slate-200/50 dark:border-slate-800/80 pt-3 mt-1.5 space-y-3">
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 dark:bg-amber-950/20 dark:border-amber-900/30 rounded-xl flex items-start gap-2.5 text-amber-800 dark:text-amber-300">
+                          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-450" />
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-bold text-xs">⚠️ Refund Reminder</span>
+                            <span className="text-[10px] leading-relaxed opacity-90">
+                              This order was paid via <strong>Credit/Debit Card</strong>. Cancelling this order will automatically initiate a full refund of <strong>Rs. {cancellationOrder.total.toLocaleString()}</strong> back to the customer's account.
+                            </span>
                           </div>
-                          
-                          {/* Toggle switch for refund approval */}
-                          <button
-                            onClick={() => setIsRefundApproved(!isRefundApproved)}
-                            className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-250 cursor-pointer ${
-                              isRefundApproved ? "bg-emerald-500" : "bg-slate-350 dark:bg-slate-700"
-                            }`}
-                          >
-                            <div
-                              className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-250 transform ${
-                                isRefundApproved ? "translate-x-4" : "translate-x-0"
-                              }`}
-                            />
-                          </button>
                         </div>
                       </div>
                     ) : (

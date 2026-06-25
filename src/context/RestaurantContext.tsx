@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { type Restaurant, type FoodItem, restaurants as mockRestaurants } from "@/utils/data/mock";
-import offer1 from "@/assets/offer1.jpg";
-import offer2 from "@/assets/offer2.png";
+import { type Restaurant, type FoodItem } from "@/utils/data/mock";
+import { apiRequest } from "@/utils/api";
+import rest1 from "@/assets/rest-1.jpg";
 
 export interface Offer {
   id: string;
@@ -16,234 +16,41 @@ export interface Offer {
   endTime?: string;
   timeLabel?: string;
   status: "Active" | "Scheduled" | "Expired" | "Draft";
-  bgGradient: string;
-  emoji: string;
-  type: "Discount" | "Combo" | "Promo";
+  bgGradient?: string;
+  emoji?: string;
+  menuItemId?: string;
+  categoryId?: string;
+  type:
+    | "PERCENTAGE_DISCOUNT"
+    | "FIXED_AMOUNT_DISCOUNT"
+    | "FREE_DELIVERY"
+    | "BUY_ONE_GET_ONE"
+    | "COMBO_DEAL"
+    | "DISCOUNT"
+    | "ITEM_DISCOUNT"
+    | "FIRST_ORDER_DISCOUNT"
+    | "FESTIVAL_OFFER"
+    | "HAPPY_HOUR"
+    | "WEEKEND_OFFER"
+    | "MINIMUM_ORDER";
   bannerImage?: string;
   // Future scalability / Optional premium features:
   targetCustomer?: "All" | "FirstOrder";
   channel?: "All" | "Delivery" | "Pickup";
   minOrderAmount?: number;
+  metadata?: any;
 }
 
-const initialOffers: Offer[] = [
-  {
-    id: "O-201",
-    restaurantId: "trinco-spice",
-    title: "20% OFF Burgers",
-    description: "Apply automatic 20% discount on gourmet flame-grilled burgers",
-    discountBadge: "20% OFF",
-    activeDays: ["Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-06-15",
-    startTime: "05:00 PM",
-    endTime: "10:00 PM",
-    timeLabel: "Evening Deal",
-    status: "Active",
-    bgGradient: "from-amber-500/10 to-orange-500/15 border-orange-500/25",
-    emoji: "🍔",
-    type: "Discount",
-    bannerImage: offer1,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 0
-  },
-  {
-    id: "O-202",
-    restaurantId: "trinco-spice",
-    title: "Weekend Family Combo",
-    description: "Buy 2 large Pizzas and get a 1L Coke bottle completely free",
-    discountBadge: "Free Coke",
-    activeDays: ["Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-06-30",
-    startTime: "05:00 PM",
-    endTime: "10:00 PM",
-    timeLabel: "Weekend Combo",
-    status: "Active",
-    bgGradient: "from-rose-500/10 to-purple-500/15 border-rose-500/25",
-    emoji: "🍕",
-    type: "Combo",
-    bannerImage: offer2,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 1500
-  },
-  {
-    id: "O-203",
-    restaurantId: "trinco-spice",
-    title: "Lunch Time Deal",
-    description: "Complimentary authentic fresh mojito with any premium Biryani purchase",
-    discountBadge: "Free Drink",
-    activeDays: ["Mon", "Tue", "Wed", "Thu"],
-    startDate: "2026-06-01",
-    endDate: "2026-06-20",
-    startTime: "11:30 AM",
-    endTime: "02:00 PM",
-    timeLabel: "Lunch Special",
-    status: "Scheduled",
-    bgGradient: "from-blue-500/10 to-indigo-500/15 border-blue-500/25",
-    emoji: "🥤",
-    type: "Promo",
-    bannerImage: offer1,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 0
-  },
-  {
-    id: "O-204",
-    restaurantId: "burger-co",
-    title: "50% OFF Burgers",
-    description: "Apply automatic 50% discount on Trinco's juiciest burgers today.",
-    discountBadge: "50% OFF",
-    activeDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-06-30",
-    startTime: "08:00 AM",
-    endTime: "11:30 PM",
-    timeLabel: "All Day Deal",
-    status: "Active",
-    bgGradient: "from-amber-500/10 to-orange-500/15 border-orange-500/25",
-    emoji: "🍔",
-    type: "Discount",
-    bannerImage: offer1,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 0
-  },
-  {
-    id: "O-205",
-    restaurantId: "burger-co",
-    title: "Buy 1 Get 1 Pizza",
-    description: "Order any pizza and get a second one absolutely free today.",
-    discountBadge: "BOGO Pizza",
-    activeDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-06-30",
-    startTime: "08:00 AM",
-    endTime: "11:30 PM",
-    timeLabel: "Pizza Special",
-    status: "Active",
-    bgGradient: "from-rose-500/10 to-purple-500/15 border-rose-500/25",
-    emoji: "🍕",
-    type: "Combo",
-    bannerImage: offer2,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 1200
-  },
-  {
-    id: "O-301",
-    restaurantId: "ocean-pearl",
-    title: "Seafood Feast Combo",
-    description: "Save on a coastal combo with grilled seafood, rice, and a refreshing drink.",
-    discountBadge: "20% OFF",
-    activeDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-12-31",
-    startTime: "07:00 AM",
-    endTime: "09:00 PM",
-    timeLabel: "All Day Seafood",
-    status: "Active",
-    bgGradient: "from-blue-500/10 to-cyan-500/15 border-blue-500/25",
-    emoji: "🐟",
-    type: "Combo",
-    bannerImage: offer1,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 1500
-  },
-  {
-    id: "O-302",
-    restaurantId: "ocean-pearl",
-    title: "Grilled Fish Special",
-    description: "Enjoy a limited Ocean Pearl discount on signature grilled fish orders.",
-    discountBadge: "15% OFF",
-    activeDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-12-31",
-    startTime: "11:00 AM",
-    endTime: "09:00 PM",
-    timeLabel: "Lunch & Dinner",
-    status: "Active",
-    bgGradient: "from-emerald-500/10 to-teal-500/15 border-emerald-500/25",
-    emoji: "🍽️",
-    type: "Discount",
-    bannerImage: offer2,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 1200
-  },
-  {
-    id: "O-303",
-    restaurantId: "ocean-pearl",
-    title: "Beachside Family Pack",
-    description: "A family-sized seafood deal with sides for group orders from Ocean Pearl.",
-    discountBadge: "Free Drink",
-    activeDays: ["Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-12-31",
-    startTime: "12:00 PM",
-    endTime: "09:00 PM",
-    timeLabel: "Weekend Pack",
-    status: "Active",
-    bgGradient: "from-amber-500/10 to-orange-500/15 border-orange-500/25",
-    emoji: "🌊",
-    type: "Promo",
-    bannerImage: offer1,
-    targetCustomer: "All",
-    channel: "All",
-    minOrderAmount: 2500
-  },
-  {
-    id: "O-304",
-    restaurantId: "ocean-pearl",
-    title: "Uppuveli Pickup Deal",
-    description: "Pickup customers get a seafood discount on selected Ocean Pearl favourites.",
-    discountBadge: "10% OFF",
-    activeDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    startDate: "2026-05-28",
-    endDate: "2026-12-31",
-    startTime: "07:00 AM",
-    endTime: "09:00 PM",
-    timeLabel: "Pickup Saver",
-    status: "Active",
-    bgGradient: "from-rose-500/10 to-purple-500/15 border-rose-500/25",
-    emoji: "🎁",
-    type: "Discount",
-    bannerImage: offer2,
-    targetCustomer: "All",
-    channel: "Pickup",
-    minOrderAmount: 1000
-  }
-];
 
-const sanitizeOffers = (offers: Offer[]): Offer[] => {
-  const emojiMap: Record<string, string> = {
-    "ðŸ Ÿ": "🐟",
-    "ðŸ ½ï¸ ": "🍽️",
-    "ðŸŒŠ": "🌊",
-    "ðŸŽ ": "🎁",
-    "ðŸŽ": "🎁"
-  };
-  return offers.map((offer) => ({
-    ...offer,
-    emoji: emojiMap[offer.emoji] || offer.emoji,
-  }));
-};
-
-const mergeInitialOffers = (savedOffers: Offer[]) => {
-  const sanitizedSaved = sanitizeOffers(savedOffers);
-  const savedIds = new Set(sanitizedSaved.map((offer) => offer.id));
-  const missingInitialOffers = initialOffers.filter((offer) => !savedIds.has(offer.id));
-  return [...sanitizedSaved, ...missingInitialOffers];
-};
 
 type RestaurantContextType = {
   restaurants: Restaurant[];
+  filteredRestaurants: Restaurant[];
   loading: boolean;
+  filteredLoading: boolean;
   error: string | null;
   refetch: (searchQueryString?: string) => Promise<void>;
+  fetchFiltered: (filters?: any) => Promise<void>;
   findRestaurant: (id: string) => Restaurant | undefined;
   findFoodItem: (foodId: string, restaurantId?: string) => { food: FoodItem; restaurant: Restaurant } | null;
   offers: Offer[];
@@ -255,88 +62,215 @@ type RestaurantContextType = {
 const RestaurantContext = createContext<RestaurantContextType | undefined>(undefined);
 
 const mergeRestaurantDefaults = (saved: Restaurant[]): Restaurant[] => {
-  return saved.map((r) => {
-    const initial = mockRestaurants.find((m) => m.id === r.id);
-    if (!initial) return r;
-    return {
-      ...r,
-      tagline: r.tagline || initial.tagline,
-      description: r.description || initial.description,
-      phone: r.phone || initial.phone,
-      whatsapp: r.whatsapp || initial.whatsapp,
-      email: r.email || initial.email,
-      website: r.website || initial.website,
-      facebook: r.facebook || initial.facebook,
-      instagram: r.instagram || initial.instagram,
-      tiktok: r.tiktok || initial.tiktok,
-      youtube: r.youtube || initial.youtube,
-      logoImage: r.logoImage || initial.logoImage,
-      coverImage: r.coverImage || initial.coverImage,
-      reviewsCount: r.reviewsCount || initial.reviewsCount,
-    };
-  });
+  return saved;
+};
+
+const mapDbRestaurantToFrontend = (dbRest: any): Restaurant => {
+  let category = dbRest.cuisineTypes?.[0] || "Srilankan Foods";
+  if (category === "SRILANKAN") category = "Rice and Curry";
+  else if (typeof category === "string" && category.toUpperCase() === "SOUTH_INDIAN") category = "South Indian";
+  else if (typeof category === "string") {
+    category = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase().replace("_", " ");
+  }
+
+  let categoriesList: string[] = [];
+  if (dbRest.categories && Array.isArray(dbRest.categories)) {
+    categoriesList = dbRest.categories.map((c: any) => c.name);
+  } else {
+    let fallbackList = ["Kottu", "Rice and Curry", "Fried Rice", "Briyani", "Mojito", "Soft Drinks"];
+    if (dbRest.cuisineTypes && dbRest.cuisineTypes.length > 0) {
+      const mapped = dbRest.cuisineTypes.map((c: string) => {
+        if (c === "SRILANKAN") return "Rice and Curry";
+        return c.charAt(0) + c.slice(1).toLowerCase().replace("_", " ");
+      });
+      fallbackList = Array.from(new Set([...mapped, ...fallbackList]));
+    }
+    categoriesList = fallbackList;
+  }
+
+  const image = dbRest.coverImage || rest1;
+
+  return {
+    id: dbRest.id,
+    name: dbRest.name,
+    image,
+    rating: dbRest.rating ?? 4.0,
+    deliveryTime: dbRest.deliveryTime || "20-30 min",
+    category,
+    location: dbRest.location || (dbRest.streetAddress ? `${dbRest.streetAddress}, ${dbRest.city}` : "") || "Trincomalee",
+    hasOffer: dbRest.featuredRestaurant || false,
+    offerText: dbRest.featuredRestaurant ? "Featured" : undefined,
+    openingTime: dbRest.openingTime || "08:00 AM",
+    closingTime: dbRest.closingTime || "10:00 PM",
+    deliveryRadius: dbRest.deliveryRadius ?? 5,
+    deliveryAvailable: dbRest.deliveryAvailable ?? true,
+    deliveryFee: dbRest.deliveryFee ?? 150,
+    categories: categoriesList,
+    menu: (dbRest.menuItems && dbRest.menuItems.length > 0)
+      ? dbRest.menuItems.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          image: item.image,
+          description: item.description,
+          popular: item.tags?.includes("Bestseller") || false,
+          category: item.category?.name || item.categoryName || "Uncategorized",
+          categoryId: item.categoryId || null,
+          stock: item.stock ?? 0,
+          isAvailable: item.isAvailable ?? true,
+          tags: item.tags || [],
+          variants: item.variants || [],
+          addons: item.addons || [],
+          timeAvailability: item.timeAvailability || "All Day",
+          ordersCount: item.ordersCount ?? 0
+        }))
+      : [],
+
+    tagline: dbRest.tagline || undefined,
+    description: dbRest.description || undefined,
+    phone: dbRest.phone || undefined,
+    whatsapp: dbRest.whatsapp || undefined,
+    email: dbRest.email || undefined,
+    streetAddress: dbRest.streetAddress || undefined,
+    city: dbRest.city || undefined,
+    logoImage: dbRest.logoImage || undefined,
+    coverImage: dbRest.coverImage || undefined,
+    minOrder: dbRest.minOrder,
+    freeDeliveryThreshold: dbRest.freeDeliveryThreshold ?? 0,
+    halalFriendly: dbRest.halalFriendly ?? false,
+    vegetarianFriendly: dbRest.vegetarianFriendly ?? false,
+    dineIn: dbRest.dineIn ?? false,
+    takeaway: dbRest.takeaway ?? false,
+    delivery: dbRest.delivery ?? true,
+    facebook: dbRest.facebook || undefined,
+    instagram: dbRest.instagram || undefined,
+    tiktok: dbRest.tiktok || undefined,
+    youtube: dbRest.youtube || undefined,
+    website: dbRest.website || undefined,
+    reviewsCount: dbRest.reviewsCount,
+    weeklyHours: dbRest.weeklyHours,
+    holidayMode: dbRest.holidayMode ?? false,
+    temporaryClosure: dbRest.temporaryClosure ?? false,
+    acceptOrders: dbRest.acceptOrders ?? true,
+    showPublicly: dbRest.showPublicly ?? true,
+    vacationMode: dbRest.vacationMode ?? false,
+    cashOnDelivery: dbRest.cashOnDelivery ?? true,
+  };
 };
 
 export function RestaurantProvider({ children }: { children: React.ReactNode }) {
-  const [restaurants, setRestaurants] = useState<Restaurant[]>(() => {
-    const saved = localStorage.getItem("trinco_restaurants");
-    return saved ? mergeRestaurantDefaults(JSON.parse(saved)) : mockRestaurants;
-  });
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [filteredRestaurants, setFilteredRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [filteredLoading, setFilteredLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [offers, setOffers] = useState<Offer[]>(() => {
-    const saved = localStorage.getItem("trinco_offers");
-    if (saved && (saved.includes("ðŸ") || saved.includes("ð") || saved.includes("ï¸"))) {
-      localStorage.removeItem("trinco_offers");
-      return initialOffers;
-    }
-    return saved ? mergeInitialOffers(JSON.parse(saved)) : initialOffers;
-  });
+  const [offers, setOffers] = useState<Offer[]>([]);
 
   const fetchRestaurants = useCallback(async (searchQueryString?: string) => {
     setLoading(true);
-    // Simulate network delay for realistic mock
-    setTimeout(() => {
-      const saved = localStorage.getItem("trinco_restaurants");
-      const fullList: Restaurant[] = saved ? mergeRestaurantDefaults(JSON.parse(saved)) : mockRestaurants;
+    try {
+      const response = await apiRequest<{
+        message: string;
+        count: number;
+        restaurants: any[];
+      }>("/restaurant/public");
 
-      // Update/initialize localStorage with the merged list
-      localStorage.setItem("trinco_restaurants", JSON.stringify(fullList));
+      let dbList = (response && response.restaurants && Array.isArray(response.restaurants))
+        ? response.restaurants
+        : [];
 
+      // Fetch private restaurant profile if logged in
+      const privateToken = localStorage.getItem("trinco_restaurant_token");
+      if (privateToken) {
+        try {
+          const privRes = await apiRequest<{
+            message: string;
+            restaurant: any;
+          }>("/restaurant/profile", {
+            method: "GET",
+            token: privateToken,
+          });
+          if (privRes && privRes.restaurant) {
+            const exists = dbList.some((r) => r.id === privRes.restaurant.id);
+            if (!exists) {
+              dbList.push(privRes.restaurant);
+            } else {
+              // Replace with latest private data (which includes detailed address/description before it is public)
+              dbList = dbList.map((r) => r.id === privRes.restaurant.id ? privRes.restaurant : r);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to fetch private restaurant profile:", e);
+        }
+      }
+
+      const mappedList = dbList.map((dbRest: any) => mapDbRestaurantToFrontend(dbRest));
+
+      setRestaurants(mappedList);
       if (searchQueryString) {
         const query = searchQueryString.toLowerCase();
-        setRestaurants(fullList.filter(r => r.name.toLowerCase().includes(query)));
+        setFilteredRestaurants(mappedList.filter(r => r.name.toLowerCase().includes(query)));
       } else {
-        setRestaurants(fullList);
+        setFilteredRestaurants(mappedList);
       }
       setLoading(false);
-    }, 500);
+      return;
+    } catch (err) {
+      console.error("Failed to fetch restaurants from backend", err);
+      setRestaurants([]);
+      setFilteredRestaurants([]);
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchFiltered = useCallback(async (filters?: any) => {
+    setFilteredLoading(true);
+    try {
+      const queryParams = new URLSearchParams();
+      if (filters) {
+        Object.entries(filters).forEach(([key, val]) => {
+          if (val !== undefined && val !== null && val !== "") {
+            queryParams.append(key, String(val));
+          }
+        });
+      }
+      const queryString = queryParams.toString();
+      const response = await apiRequest<{
+        message: string;
+        count: number;
+        restaurants: any[];
+      }>(`/restaurant/public${queryString ? `?${queryString}` : ""}`);
+
+      const dbList = (response && response.restaurants && Array.isArray(response.restaurants))
+        ? response.restaurants
+        : [];
+      
+      const mappedList = dbList.map((dbRest: any) => mapDbRestaurantToFrontend(dbRest));
+      setFilteredRestaurants(mappedList);
+    } catch (err) {
+      console.error("Failed to fetch filtered restaurants:", err);
+    } finally {
+      setFilteredLoading(false);
+    }
+  }, []);
+
+  const fetchOffers = useCallback(async () => {
+    try {
+      const data = await apiRequest<Offer[]>("/offer/public");
+      if (data && Array.isArray(data)) {
+        setOffers(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch public offers:", err);
+    }
   }, []);
 
   useEffect(() => {
     fetchRestaurants();
-  }, [fetchRestaurants]);
+    fetchOffers();
+  }, [fetchRestaurants, fetchOffers]);
 
-  // Persist offers when updated
-  useEffect(() => {
-    localStorage.setItem("trinco_offers", JSON.stringify(offers));
-  }, [offers]);
 
-  // Sync state between tabs in real-time
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "trinco_restaurants" && e.newValue) {
-        setRestaurants(JSON.parse(e.newValue));
-      }
-      if (e.key === "trinco_offers" && e.newValue) {
-        setOffers(JSON.parse(e.newValue));
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, []);
 
   const findRestaurant = useCallback((id: string) => {
     return restaurants.find((r) => r.id === id);
@@ -363,47 +297,49 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   }, [restaurants]);
 
   const updateRestaurantMenu = useCallback((restaurantId: string, newMenu: FoodItem[]) => {
-    const saved = localStorage.getItem("trinco_restaurants");
-    const fullList: Restaurant[] = saved ? JSON.parse(saved) : mockRestaurants;
-
-    const updatedList = fullList.map((r) => {
-      if (r.id === restaurantId) {
-        const newCategories = Array.from(new Set(newMenu.map((item) => item.category)));
-        return {
-          ...r,
-          categories: newCategories.length > 0 ? newCategories : r.categories,
-          menu: newMenu,
-        };
-      }
-      return r;
-    });
-
-    localStorage.setItem("trinco_restaurants", JSON.stringify(updatedList));
-    setRestaurants(updatedList);
+    const updateList = (prevList: Restaurant[]) =>
+      prevList.map((r) => {
+        if (r.id === restaurantId) {
+          const newCategories = Array.from(new Set(newMenu.map((item) => item.category)));
+          return {
+            ...r,
+            categories: newCategories.length > 0 ? newCategories : r.categories,
+            menu: newMenu,
+          };
+        }
+        return r;
+      });
+    setRestaurants((prev) => updateList(prev));
+    setFilteredRestaurants((prev) => updateList(prev));
   }, []);
 
   const updateRestaurantProfile = useCallback((restaurantId: string, profileFields: Partial<Restaurant>) => {
-    const saved = localStorage.getItem("trinco_restaurants");
-    const fullList: Restaurant[] = saved ? JSON.parse(saved) : mockRestaurants;
-
-    const updatedList = fullList.map((r) => {
-      if (r.id === restaurantId) {
-        return { ...r, ...profileFields };
-      }
-      return r;
-    });
-
-    localStorage.setItem("trinco_restaurants", JSON.stringify(updatedList));
-    setRestaurants(updatedList);
+    const updateList = (prevList: Restaurant[]) =>
+      prevList.map((r) => {
+        if (r.id === restaurantId) {
+          return { ...r, ...profileFields };
+        }
+        return r;
+      });
+    setRestaurants((prev) => updateList(prev));
+    setFilteredRestaurants((prev) => updateList(prev));
   }, []);
+
+  const refetch = useCallback(async (searchQueryString?: string) => {
+    await fetchRestaurants(searchQueryString);
+    await fetchOffers();
+  }, [fetchRestaurants, fetchOffers]);
 
   return (
     <RestaurantContext.Provider
       value={{
         restaurants,
+        filteredRestaurants,
         loading,
+        filteredLoading,
         error,
-        refetch: fetchRestaurants,
+        refetch,
+        fetchFiltered,
         findRestaurant,
         findFoodItem,
         offers,

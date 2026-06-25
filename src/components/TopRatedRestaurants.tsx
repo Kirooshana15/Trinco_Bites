@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type Restaurant } from "@/utils/data/mock";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { useRef } from "react";
-import { isRestaurantOpen } from "@/utils/time";
+import { isRestaurantOpen, getTodayHours } from "@/utils/time";
 
 import { C } from "@/utils/theme";
 
@@ -130,7 +130,7 @@ function TopRestaurantCard({ r, index }: { r: Restaurant; index: number }) {
               </span>
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-400 font-semibold mt-0.5">
-              <span>🕒 {r.openingTime} - {r.closingTime}</span>
+              <span>🕒 {getTodayHours(r)}</span>
             </div>
           </div>
         </div>
@@ -144,8 +144,9 @@ export function TopRatedRestaurants() {
   const { restaurants } = useRestaurants();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Top 4 by rating
+  // Top 4 by rating, excluding unpublished or vacationing restaurants
   const topRestaurants = [...restaurants]
+    .filter(r => r.showPublicly !== false && r.vacationMode !== true)
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 4);
 

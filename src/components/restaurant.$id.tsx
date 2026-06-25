@@ -1,4 +1,4 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Star,
@@ -20,26 +20,93 @@ import {
   Facebook,
   Instagram,
   Youtube,
-  Compass
+  Compass,
+  RefreshCw
 } from "lucide-react";
 import React, { useState, useMemo, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { FoodCard } from "@/components/FoodCard";
 import { OffersBadge } from "@/components/OffersBadge";
-import { categories, type FoodItem } from "@/utils/data/mock";
+import { type FoodItem } from "@/utils/data/mock";
 import { useRestaurants, type Offer } from "@/context/RestaurantContext";
 import { useCart } from "@/context/CartContext";
+import { apiRequest } from "@/utils/api";
+import { isMenuItemTimeAvailable } from "@/utils/time";
 
 import { C } from "@/utils/theme";
 
 const VIBRANT_COLORS = Object.values(C.vibrant);
 
 /* ── Status Helpers ───────────────────────────────────────────────── */
-function isCurrentlyOpen(open: string, close: string) {
+function getTodayStatusMessage(open: string, close: string, weeklyHours?: any) {
+  const now = new Date();
+  const daysMap = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const currentDay = daysMap[now.getDay()];
+
+  let openingTimeStr = open;
+  let closingTimeStr = close;
+
+  if (weeklyHours) {
+    let weekly = weeklyHours;
+    if (typeof weekly === 'string') {
+      try {
+        weekly = JSON.parse(weekly);
+      } catch (e) {
+        weekly = null;
+      }
+    }
+    if (weekly && weekly[currentDay]) {
+      const todayHours = weekly[currentDay];
+      if (!todayHours.open) {
+        return "Closed Today";
+      }
+      openingTimeStr = todayHours.from || openingTimeStr;
+      closingTimeStr = todayHours.to || closingTimeStr;
+    }
+  }
+
+  if (!openingTimeStr || !closingTimeStr) return "Closed";
+
+  const parseTimeToMinutes = (t: string) => {
+    const parts = t.split(" ");
+    if (parts.length < 2) return 0;
+    const [time, period] = parts;
+    let [hours, minutes] = time.split(":").map(Number);
+    if (period === "PM" && hours !== 12) hours += 12;
+    if (period === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  };
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const openMinutes = parseTimeToMinutes(openingTimeStr);
+  const closeMinutes = parseTimeToMinutes(closingTimeStr);
+
+  const isOpenNow = closeMinutes < openMinutes
+    ? (currentMinutes >= openMinutes || currentMinutes <= closeMinutes)
+    : (currentMinutes >= openMinutes && currentMinutes <= closeMinutes);
+
+  if (isOpenNow) {
+    return `Closes at ${closingTimeStr}`;
+  } else if (currentMinutes < openMinutes) {
+    return `Opens today at ${openingTimeStr}`;
+  } else {
+    return "Closed for the day";
+  }
+}
+
+function isCurrentlyOpen(r: any) {
+  if (r.temporaryClosure === true) return false;
+  if (r.holidayMode === true) return false;
+  if (r.vacationMode === true) return false;
+  if (r.acceptOrders === false) return false;
+
   const now = new Date();
   const parseTime = (t: string) => {
-    const [time, period] = t.split(" ");
+    if (!t) return null;
+    const parts = t.split(" ");
+    if (parts.length < 2) return null;
+    const [time, period] = parts;
     let [hours, minutes] = time.split(":").map(Number);
     if (period === "PM" && hours !== 12) hours += 12;
     if (period === "AM" && hours === 12) hours = 0;
@@ -47,8 +114,36 @@ function isCurrentlyOpen(open: string, close: string) {
     d.setHours(hours, minutes, 0, 0);
     return d;
   };
-  const openTime = parseTime(open);
-  const closeTime = parseTime(close);
+
+  let openingTimeStr = r.openingTime;
+  let closingTimeStr = r.closingTime;
+
+  if (r.weeklyHours) {
+    const daysMap = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const currentDay = daysMap[now.getDay()];
+    let weekly = r.weeklyHours;
+    if (typeof weekly === 'string') {
+      try {
+        weekly = JSON.parse(weekly);
+      } catch (e) {
+        weekly = null;
+      }
+    }
+    if (weekly && weekly[currentDay]) {
+      const todayHours = weekly[currentDay];
+      if (!todayHours.open) {
+        return false;
+      }
+      openingTimeStr = todayHours.from || openingTimeStr;
+      closingTimeStr = todayHours.to || closingTimeStr;
+    }
+  }
+
+  const openTime = parseTime(openingTimeStr);
+  const closeTime = parseTime(closingTimeStr);
+
+  if (!openTime || !closeTime) return false;
+
   return now >= openTime && now <= closeTime;
 }
 
@@ -191,27 +286,28 @@ const CARD_BACKGROUNDS = [
 ];
 
 /* ── Menu Row Card ──────────────────────────────────────────────── */
-function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
+function MenuRow({ item, index, restaurantId, onSelect, isOpen, isBusy }: {
   item: FoodItem;
   index: number;
   restaurantId: string;
   onSelect: (item: FoodItem) => void;
   isOpen: boolean;
+  isBusy?: boolean;
 }) {
 
   const card = (
     <motion.div
-        layoutId={`card-bg-${item.id}`}
-        initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30, rotate: index % 2 === 0 ? -2 : 2 }}
-        whileInView={{ opacity: 1, x: 0, rotate: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative flex flex-col lg:h-full rounded-[40px] p-6 shadow-2xl border border-white/15 cursor-pointer overflow-hidden"
-        style={{
-          background: CARD_BACKGROUNDS[index % CARD_BACKGROUNDS.length],
-          boxShadow: "0 24px 44px rgba(37, 16, 7, 0.18), inset 0 1px 0 rgba(255,255,255,0.16)",
-        }}
-      >
+      layoutId={`card-bg-${item.id}`}
+      initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30, rotate: index % 2 === 0 ? -2 : 2 }}
+      whileInView={{ opacity: 1, x: 0, rotate: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
+      className="relative flex flex-col min-h-[200px] rounded-[40px] p-6 shadow-2xl border border-white/15 cursor-pointer overflow-hidden"
+      style={{
+        background: CARD_BACKGROUNDS[index % CARD_BACKGROUNDS.length],
+        boxShadow: "0 24px 44px rgba(37, 16, 7, 0.18), inset 0 1px 0 rgba(255,255,255,0.16)",
+      }}
+    >
       <motion.div
         layoutId={`card-texture-${item.id}`}
         className="absolute inset-0 opacity-10 pointer-events-none rounded-[40px]"
@@ -243,7 +339,7 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
           layoutId={`card-desc-${item.id}`}
           className="text-white/80 text-[11px] font-medium leading-relaxed max-w-[140px]"
         >
-          {CAT_DESCRIPTIONS[item.category] || item.description || "Freshly prepared with authentic ingredients and local spices."}
+          {item.description || "Freshly prepared with authentic ingredients and local spices."}
         </motion.p>
       </div>
 
@@ -268,7 +364,7 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
       {!isOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#120400]/55 backdrop-blur-[2px]">
           <div className="rounded-full border border-white/20 bg-white/15 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white">
-            Restaurant Closed
+            {isBusy ? "Kitchen Busy" : "Restaurant Closed"}
           </div>
         </div>
       )}
@@ -276,7 +372,7 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
   );
 
   return isOpen ? (
-    <Link to="/food/$id" params={{ id: item.id }} search={{ restaurantId }}>
+    <Link to="/food/$id" params={{ id: (item as any).foodItemId || item.id }} search={{ restaurantId }}>
       {card}
     </Link>
   ) : (
@@ -286,57 +382,67 @@ function MenuRow({ item, index, restaurantId, onSelect, isOpen }: {
   );
 }
 
-/* ── Category Descriptions ────────────────────────────────────────── */
-const CAT_DESCRIPTIONS: Record<string, string> = {
-  "Kottu": "Chopped roti stir-fried with spicy curry, vegetables, eggs, and your favorite meat for the ultimate Sri Lankan street-food experience.",
-  "Noodles": "Flavor-packed stir-fried noodles tossed with fresh vegetables, sauces, and delicious chicken or seafood options.",
-  "Srilankan Foods": "Authentic local meals rich with traditional spices, aromatic curries, rice, and homemade flavors from Sri Lanka.",
-  "Fried Rice": "Wok-fried rice mixed with vegetables, eggs, and your choice of chicken, seafood, or beef for a satisfying meal.",
-  "Nasi Goreng": "Indonesian-style spicy fried rice blended with sweet soy sauce, chili flavors, and perfectly cooked proteins.",
-  "Seafood": "Fresh ocean flavors featuring prawns, crab, fish, and calamari cooked with bold coastal seasonings.",
-  "Briyani": "Aromatic basmati rice layered with flavorful spices and tender meat, slow-cooked for a rich traditional taste.",
-  "Chinese Rice": "Delicious Chinese-style rice dishes cooked with savory sauces, vegetables, and sizzling meat combinations.",
-  "Burgers": "Juicy burgers stacked with crispy patties, melted cheese, fresh veggies, and signature sauces.",
-  "Pizza": "Oven-baked pizzas loaded with cheesy goodness, fresh toppings, and flavorful sauces on a crispy crust.",
-  "Soft Drinks": "Refreshing chilled beverages perfect for pairing with your favorite meals and snacks.",
-  "Juice": "Freshly blended fruit juices packed with natural sweetness, tropical flavors, and refreshing energy.",
-  "Mojito": "Cool minty mocktails mixed with fruity flavors, citrus freshness, and sparkling refreshment.",
-  "Milkshake": "Creamy thick milkshakes blended with rich flavors, ice cream, and sweet toppings.",
-  "Desserts": "Sweet treats and delightful desserts crafted to perfectly finish your meal experience.",
-  "Omlete": "Fluffy egg omelets filled with vegetables, cheese, and savory ingredients for a simple tasty bite.",
-};
 
 function getCategoryImage(categoryName: string, fallbackImage: string) {
-  const match = categories.find((category) => category.name.toLowerCase() === categoryName.toLowerCase());
-  return match?.image || fallbackImage;
+  return fallbackImage || "";
 }
 
 function getOfferFoodItemId(offerId: string, restaurant: any): string | null {
+  const isAvailable = (item: any) => 
+    item.isAvailable !== false && 
+    item.stock !== 0 && 
+    isMenuItemTimeAvailable(item.timeAvailability);
+
   if (offerId === "O-204") return "f7";
   if (offerId === "O-205") return "f8";
 
   if (offerId === "O-201") {
-    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("burger") || item.name.toLowerCase().includes("burger"));
-    return found ? found.id : restaurant.menu[0]?.id || null;
+    const found = restaurant.menu.find((item: any) => 
+      (item.category.toLowerCase().includes("burger") || item.name.toLowerCase().includes("burger")) && isAvailable(item)
+    );
+    return found ? found.id : restaurant.menu.find(isAvailable)?.id || null;
   }
   if (offerId === "O-202") {
-    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("pizza") || item.name.toLowerCase().includes("pizza"));
-    return found ? found.id : restaurant.menu[0]?.id || null;
+    const found = restaurant.menu.find((item: any) => 
+      (item.category.toLowerCase().includes("pizza") || item.name.toLowerCase().includes("pizza")) && isAvailable(item)
+    );
+    return found ? found.id : restaurant.menu.find(isAvailable)?.id || null;
   }
   if (offerId === "O-203") {
-    const found = restaurant.menu.find((item: any) => item.category.toLowerCase().includes("briyani") || item.name.toLowerCase().includes("briyani"));
-    return found ? found.id : restaurant.menu[0]?.id || null;
+    const found = restaurant.menu.find((item: any) => 
+      (item.category.toLowerCase().includes("briyani") || item.name.toLowerCase().includes("briyani")) && isAvailable(item)
+    );
+    return found ? found.id : restaurant.menu.find(isAvailable)?.id || null;
   }
 
-  return restaurant.menu[0]?.id || null;
+  return restaurant.menu.find(isAvailable)?.id || restaurant.menu[0]?.id || null;
 }
 
 export function RestaurantPage() {
+  const navigate = useNavigate();
   const { findRestaurant, offers } = useRestaurants();
   const { id } = useParams({ strict: false });
   const r = findRestaurant(id || "");
   const { count, add, decrement, items: cartItems } = useCart();
   const [activeCategory, setActiveCategory] = useState("All");
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  useEffect(() => {
+    const fetchDbCategories = async () => {
+      if (!id) return;
+      try {
+        setLoadingCategories(true);
+        const data = await apiRequest<any[]>(`/category/public/restaurant/${id}`);
+        setDbCategories(data || []);
+      } catch (err) {
+        console.error("Failed to fetch categories from backend:", err);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+    fetchDbCategories();
+  }, [id]);
 
   useEffect(() => {
     const offerParam = new URLSearchParams(window.location.search).get("offer");
@@ -360,29 +466,80 @@ export function RestaurantPage() {
       .filter(o => o.computedStatus === "Active" || o.computedStatus === "Scheduled");
   }, [offers, r]);
 
-  if (!r) return null;
+  const categoryCards = useMemo(() => {
+    if (!r) return [];
+    return dbCategories
+      .map((dbCat) => {
+        const catNameLower = dbCat.name.toLowerCase();
 
-  const isOpen = isCurrentlyOpen(r.openingTime, r.closingTime);
+        // Find a matching available and time-available food item in this category
+        const matchingFood = r.menu.find((f) => {
+          const itemCatLower = f.category.toLowerCase();
+          const matchesCat =
+            f.categoryId === dbCat.id ||
+            itemCatLower === catNameLower ||
+            itemCatLower === catNameLower + "s" ||
+            catNameLower === itemCatLower + "s" ||
+            itemCatLower.startsWith(catNameLower.substring(0, 4));
 
-  const uniqueMenu = useMemo(() => {
-    const seen = new Set<string>();
-    return r.menu.filter((item) => {
-      const typedItem = item as any;
-      if (typedItem.isAvailable === false || typedItem.stock === 0) return false;
-      if (seen.has(item.category)) return false;
-      seen.add(item.category);
-      return true;
-    });
-  }, [r.menu]);
+          return (
+            matchesCat &&
+            (f as any).isAvailable !== false &&
+            (f as any).stock !== 0 &&
+            isMenuItemTimeAvailable(f.timeAvailability)
+          );
+        });
 
-  const filteredMenu = useMemo(() => {
-    if (activeCategory === "All") return uniqueMenu;
-    return uniqueMenu.filter(item => item.category === activeCategory);
-  }, [uniqueMenu, activeCategory]);
+        // If no matching available food item is found, filter out this category
+        if (!matchingFood) return null;
+
+        return {
+          id: `db-cat-${dbCat.id}`,
+          foodItemId: matchingFood.id,
+          category: dbCat.name,
+          description: dbCat.description,
+          image: dbCat.image,
+        };
+      })
+      .filter((cat): cat is NonNullable<typeof cat> => cat !== null);
+  }, [dbCategories, r?.menu]);
 
   const popularItems = useMemo(() => {
-    return r.menu.filter(item => item.popular && (item as any).isAvailable !== false && (item as any).stock !== 0).slice(0, 3);
-  }, [r.menu]);
+    if (!r) return [];
+    return r.menu
+      .filter((item) => 
+        item.popular && 
+        (item as any).isAvailable !== false && 
+        (item as any).stock !== 0 &&
+        isMenuItemTimeAvailable(item.timeAvailability)
+      )
+      .slice(0, 3);
+  }, [r?.menu]);
+
+  if (!r) return null;
+
+  const isOpen = isCurrentlyOpen(r);
+
+  const statusInfo = useMemo(() => {
+    if (r.temporaryClosure) {
+      return { label: "TEMPORARILY CLOSED", badgeClass: "bg-red-100 text-red-700 border border-red-200", dotClass: "bg-red-500", message: "Emergency kitchen reset/maintenance in progress." };
+    }
+    if (r.holidayMode) {
+      return { label: "CLOSED FOR HOLIDAY", badgeClass: "bg-red-105 text-red-700 border border-red-200", dotClass: "bg-red-500", message: "Closed for national/local holiday." };
+    }
+    if (r.vacationMode) {
+      return { label: "ON VACATION", badgeClass: "bg-amber-100 text-amber-700 border border-amber-200", dotClass: "bg-amber-500", message: "We are currently away on vacation. Checkouts are locked." };
+    }
+    if (r.acceptOrders === false) {
+      return { label: "KITCHEN BUSY", badgeClass: "bg-orange-100 text-orange-700 border border-orange-200", dotClass: "bg-orange-500", message: "Kitchen is busy. Refusing new checkouts." };
+    }
+    const isTimeOpen = isCurrentlyOpen(r);
+    if (isTimeOpen) {
+      return { label: "OPEN NOW", badgeClass: "bg-green-100 text-green-700 border border-green-200", dotClass: "bg-green-500 animate-pulse", message: getTodayStatusMessage(r.openingTime, r.closingTime, r.weeklyHours) };
+    } else {
+      return { label: "CLOSED NOW", badgeClass: "bg-red-100 text-red-700 border border-red-200", dotClass: "bg-red-500", message: getTodayStatusMessage(r.openingTime, r.closingTime, r.weeklyHours) };
+    }
+  }, [r]);
 
   return (
     <div className="flex min-h-screen flex-col" style={{ background: C.bg, fontFamily: "var(--font-body)" }}>
@@ -407,9 +564,6 @@ export function RestaurantPage() {
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-4 mb-4">
                 <div className="h-20 w-20 rounded-2xl bg-white p-1 shadow-2xl border-2 border-[#F8DDA4]/30 overflow-hidden">
                   <img src={r.logoImage || r.image} alt="logo" className="h-full w-full object-cover rounded-xl" />
-                </div>
-                <div className="px-4 py-1.5 rounded-full bg-[#D45113] text-white text-[10px] font-black uppercase tracking-widest">
-                  {r.category}
                 </div>
               </motion.div>
 
@@ -440,11 +594,13 @@ export function RestaurantPage() {
             className="bg-white rounded-[32px] p-6 shadow-2xl border border-[#F8DDA4]/40 grid grid-cols-2 md:grid-cols-4 gap-6">
 
             <div className="flex flex-col items-center text-center p-2">
-              <div className={`flex items-center gap-2 mb-2 px-3 py-1 rounded-full text-[10px] font-black ${isOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                <span className={`w-2 h-2 rounded-full ${isOpen ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                {isOpen ? 'OPEN NOW' : 'CLOSED'}
+              <div className={`flex items-center gap-2 mb-2 px-3 py-1 rounded-full text-[10px] font-black ${statusInfo.badgeClass}`}>
+                <span className={`w-2 h-2 rounded-full ${statusInfo.dotClass}`} />
+                {statusInfo.label}
               </div>
-              <p className="text-xs text-slate-500">Closes at {r.closingTime}</p>
+              <p className="text-xs text-slate-500 font-bold">
+                {statusInfo.message}
+              </p>
             </div>
 
             <div className="flex flex-col items-center text-center p-2 border-l border-slate-100">
@@ -465,10 +621,27 @@ export function RestaurantPage() {
                 {r.deliveryAvailable ? `Rs. ${r.deliveryFee?.toLocaleString()}.00` : "Delivery Unavailable"}
               </p>
               <p className="text-[10px] text-slate-500 uppercase tracking-tighter mt-1">
-                {r.deliveryAvailable ? "Delivery Fee" : "Status"}
+                {r.deliveryAvailable ? ((r as any).freeDeliveryThreshold ? `Free over Rs. ${(r as any).freeDeliveryThreshold.toLocaleString()}` : "Delivery Fee") : "Status"}
               </p>
             </div>
           </motion.div>
+
+          {/* Warning banner for closed/busy status */}
+          {(r.temporaryClosure || r.holidayMode || r.vacationMode || r.acceptOrders === false) && (
+            <div className={`mt-4 rounded-[24px] p-5 border flex items-center gap-3.5 shadow-md ${
+              r.acceptOrders === false 
+                ? "bg-orange-50/70 border-orange-200 text-orange-800" 
+                : r.vacationMode 
+                  ? "bg-amber-50/70 border-amber-200 text-amber-800" 
+                  : "bg-red-50/70 border-red-200 text-red-800"
+            }`}>
+              <span className="text-2xl shrink-0">⚠️</span>
+              <div className="text-left">
+                <h4 className="font-black text-sm uppercase tracking-wider">{statusInfo.label}</h4>
+                <p className="text-xs font-semibold mt-1 opacity-90 leading-relaxed">{statusInfo.message}</p>
+              </div>
+            </div>
+          )}
 
           {/* ── Social Links + Description Card ───────────────────── */}
           {(r.website || r.facebook || r.instagram || r.youtube || r.tiktok || r.phone || r.description) && (
@@ -542,28 +715,30 @@ export function RestaurantPage() {
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
               {activeAndLiveOffers.map((offer) => {
                 const isActiveRightNow = offer.liveState === "Active";
-                const foodItemId = getOfferFoodItemId(offer.id, r);
+                let foodItemId = offer.menuItemId;
+                if (!foodItemId && offer.categoryId) {
+                  const match = r.menu.find((item) => item.categoryId === offer.categoryId);
+                  if (match) foodItemId = match.id;
+                }
 
                 const cardContent = (
                   <motion.div
-                    whileHover={isOpen && foodItemId ? { y: -4, scale: 1.01 } : {}}
-                    className={`flex-shrink-0 w-80 md:w-96 rounded-2xl bg-white border border-[#F8DDA4]/30 shadow-md p-4 snap-start flex flex-col justify-between ${
-                      isOpen && foodItemId ? "cursor-pointer hover:border-[#D45113]/30 transition-all" : "cursor-not-allowed opacity-80"
-                    }`}
+                    whileHover={isOpen && (foodItemId || offer.type === "FREE_DELIVERY") ? { y: -4, scale: 1.01 } : {}}
+                    className={`flex-shrink-0 w-80 md:w-96 rounded-2xl bg-white border border-[#F8DDA4]/30 shadow-md p-4 snap-start flex flex-col justify-between ${isOpen && (foodItemId || offer.type === "FREE_DELIVERY") ? "cursor-pointer hover:border-[#D45113]/30 transition-all" : "cursor-not-allowed opacity-80"
+                      }`}
                   >
                     <div className="flex gap-3">
                       {offer.bannerImage ? (
                         <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 relative bg-slate-50 border border-slate-100">
                           <img src={offer.bannerImage} alt={offer.title} className="w-full h-full object-cover" />
-                          <div className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-white ${
-                            isActiveRightNow ? "bg-green-650 animate-pulse" : "bg-amber-600"
-                          }`}>
+                          <div className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-white ${isActiveRightNow ? "bg-green-650 animate-pulse" : "bg-amber-600"
+                            }`}>
                             {isActiveRightNow ? "Live Now" : "Upcoming"}
                           </div>
                         </div>
                       ) : (
                         <div className="w-24 h-24 rounded-xl bg-orange-50/50 border border-orange-100/50 flex items-center justify-center shrink-0 text-3xl">
-                          {offer.emoji}
+                          {offer.emoji || "🎁"}
                         </div>
                       )}
 
@@ -571,7 +746,7 @@ export function RestaurantPage() {
                         <div>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-[8px] font-black uppercase tracking-wider text-[#D45113] bg-[#D45113]/10 px-2 py-0.5 rounded-full">
-                              {offer.type === "Discount" ? "Automatic Discount" : offer.type === "Combo" ? "Combo Deal" : "Special Promo"}
+                              {offer.type.includes("DISCOUNT") ? "Automatic Discount" : offer.type === "COMBO_DEAL" ? "Combo Deal" : "Special Promo"}
                             </span>
                             {offer.timeLabel && (
                               <span className="text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
@@ -595,14 +770,13 @@ export function RestaurantPage() {
                         {offer.discountBadge}
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
-                          isActiveRightNow
-                            ? "bg-green-100 text-green-700 border border-green-200/50"
-                            : "bg-amber-100 text-amber-700 border border-amber-200/50"
-                        }`}>
+                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${isActiveRightNow
+                          ? "bg-green-100 text-green-700 border border-green-200/50"
+                          : "bg-amber-100 text-amber-700 border border-amber-200/50"
+                          }`}>
                           {isActiveRightNow ? "✓ Auto Applied" : "Starts Soon"}
                         </span>
-                        {isOpen && foodItemId && (
+                        {isOpen && (foodItemId || offer.type === "FREE_DELIVERY") && (
                           <span className="text-[10px] font-black text-orange-650 flex items-center gap-0.5 bg-orange-100/50 px-2 py-1 rounded-lg border border-orange-200/50 hover:bg-orange-100">
                             Order Deal <ChevronRight size={10} strokeWidth={3} />
                           </span>
@@ -612,18 +786,37 @@ export function RestaurantPage() {
                   </motion.div>
                 );
 
-                return isOpen && foodItemId ? (
-                  <Link
+                return (
+                  <div
                     key={offer.id}
-                    to="/food/$id"
-                    params={{ id: foodItemId }}
-                    search={{ restaurantId: r.id, offerId: offer.id }}
                     className="block"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (!isOpen) return;
+                      if (!foodItemId && offer.type !== "FREE_DELIVERY") return;
+                      
+                      if (offer.type === "COMBO_DEAL" && foodItemId) {
+                        const foodItem = r.menu.find((item) => item.id === foodItemId);
+                        if (foodItem) {
+                          add(foodItem, r.id, 1, { appliedOffer: offer as any });
+                          navigate({ to: "/cart" });
+                        }
+                      } else if (offer.type === "FREE_DELIVERY") {
+                        const menuEl = document.getElementById("offers-section");
+                        if (menuEl) {
+                          menuEl.scrollIntoView({ behavior: "smooth" });
+                        }
+                      } else if (foodItemId) {
+                        navigate({
+                          to: "/food/$id",
+                          params: { id: foodItemId },
+                          search: { restaurantId: r.id, offerId: offer.id }
+                        });
+                      }
+                    }}
                   >
                     {cardContent}
-                  </Link>
-                ) : (
-                  <div key={offer.id} className="block">{cardContent}</div>
+                  </div>
                 );
               })}
             </div>
@@ -632,6 +825,7 @@ export function RestaurantPage() {
 
         {/* ── Menu Display Section (Responsive Grid) ──────────────────── */}
         <section className="mx-auto max-w-7xl px-4 mt-8 pb-24">
+
           <motion.h2
             key={activeCategory}
             initial={{ opacity: 0, y: 10 }}
@@ -644,14 +838,15 @@ export function RestaurantPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-12">
             <AnimatePresence mode="popLayout">
-              {filteredMenu.map((item, i) => (
+              {categoryCards.map((item, i) => (
                 <MenuRow
                   key={item.id}
-                  item={item}
-                  index={uniqueMenu.findIndex(m => m.category === item.category)}
+                  item={item as any}
+                  index={i}
                   restaurantId={r.id}
-                  onSelect={() => {}}
+                  onSelect={() => { }}
                   isOpen={isOpen}
+                  isBusy={r.acceptOrders === false}
                 />
               ))}
             </AnimatePresence>
@@ -661,30 +856,7 @@ export function RestaurantPage() {
 
       <Footer />
 
-      {/* ── Bottom Action Bar (Mobile) ────────────────────────────── */}
-      <AnimatePresence>
-        {count > 0 && (
-          <motion.div
-            initial={{ y: 100 }}
-            animate={{ y: 0 }}
-            exit={{ y: 100 }}
-            className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-white px-6 py-5 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] border-t border-[#F8DDA4]/30 rounded-t-[32px]"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Cart Total</p>
-                <p className="text-lg font-black text-[#D45113]">Checkout</p>
-              </div>
-              <Link to="/cart" className="flex-1">
-                <motion.button whileTap={{ scale: 0.95 }}
-                  className="w-full bg-[#D45113] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-[#D45113]/30">
-                  <ShoppingBag size={20} /> View Cart ({count})
-                </motion.button>
-              </Link>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 }

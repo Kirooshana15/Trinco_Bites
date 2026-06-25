@@ -25,8 +25,8 @@ export function Success() {
         totalDiscount += (normalUnitPrice - item.customPrice) * item.quantity;
       }
       
-      // If BOGO (O-205), we also have a free pizza of the same price
-      if (item.appliedOffer?.id === "O-205") {
+      // If BOGO, we also have a free item of the same price
+      if (item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") {
         originalSubtotal += normalUnitPrice;
         totalDiscount += normalUnitPrice;
       }
@@ -158,8 +158,8 @@ export function Success() {
                           </div>
 
                           {/* BOGO free item listing */}
-                          {item.appliedOffer?.id === "O-205" && (
-                            <div className="mt-1 p-2 rounded-lg bg-emerald-50/50 border border-emerald-100/50 flex items-center justify-between text-xs text-emerald-800 font-bold">
+                          {(item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") && (
+                            <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/50 border border-emerald-100/50 flex items-center justify-between text-xs text-emerald-800 font-bold">
                               <span>🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]</span>
                               <span className="font-extrabold">Rs 0</span>
                             </div>
@@ -245,12 +245,21 @@ export function Success() {
             transition={{ delay: 0.7 }}
             className="flex flex-col gap-3.5 max-w-sm mx-auto"
           >
-            <Link 
-              to="/rate" 
-              className="bg-[#D45113] hover:bg-[#813405] text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition shadow-md shadow-[#D45113]/15 text-center flex items-center justify-center gap-2"
-            >
-              ⭐ Rate Restaurant & Delivery
-            </Link>
+            {latestOrder && latestOrder.status === "Delivered" ? (
+              <Link 
+                to={`/rate?orderId=${latestOrder.id}`} 
+                className="bg-[#D45113] hover:bg-[#813405] text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition shadow-md shadow-[#D45113]/15 text-center flex items-center justify-center gap-2"
+              >
+                ⭐ Rate Restaurant & Delivery
+              </Link>
+            ) : (
+              <Link 
+                to="/track" 
+                className="bg-[#D45113] hover:bg-[#813405] text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition shadow-md shadow-[#D45113]/15 text-center flex items-center justify-center gap-2"
+              >
+                🛵 Track Order to Rate
+              </Link>
+            )}
             <Link 
               to="/home" 
               className="text-[#813405] hover:text-[#D45113] text-xs font-black uppercase tracking-widest py-3 border border-[#813405]/10 bg-white rounded-2xl transition"

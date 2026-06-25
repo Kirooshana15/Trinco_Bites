@@ -1,12 +1,32 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Star, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Restaurant } from "@/utils/data/mock";
 import { OffersBadge } from "./OffersBadge";
-import { isRestaurantOpen } from "@/utils/time";
+import { isRestaurantOpen, getTodayHours } from "@/utils/time";
 
 export function RestaurantCard({ r, index = 0 }: { r: Restaurant; index?: number }) {
   const isOpen = isRestaurantOpen(r);
+
+  const badgeInfo = useMemo(() => {
+    if (r.temporaryClosure) {
+      return { text: "Temp. Closed", bg: "bg-red-500/90 text-white shadow-lg shadow-red-900/25", icon: <XCircle className="h-3.5 w-3.5" /> };
+    }
+    if (r.holidayMode) {
+      return { text: "Holiday Closed", bg: "bg-red-500/90 text-white shadow-lg shadow-red-900/25", icon: <XCircle className="h-3.5 w-3.5" /> };
+    }
+    if (r.vacationMode) {
+      return { text: "On Vacation", bg: "bg-amber-600/90 text-white shadow-lg shadow-amber-900/25", icon: <XCircle className="h-3.5 w-3.5" /> };
+    }
+    if (r.acceptOrders === false) {
+      return { text: "Kitchen Busy", bg: "bg-orange-500/90 text-white shadow-lg shadow-orange-900/25", icon: <Clock className="h-3.5 w-3.5" /> };
+    }
+    if (isOpen) {
+      return { text: "Open now", bg: "bg-emerald-500/90 text-white shadow-lg shadow-emerald-900/25", icon: <CheckCircle2 className="h-3.5 w-3.5" /> };
+    }
+    return { text: "Closed now", bg: "bg-red-500/90 text-white shadow-lg shadow-red-900/25", icon: <XCircle className="h-3.5 w-3.5" /> };
+  }, [r, isOpen]);
 
   return (
     <motion.div
@@ -21,19 +41,11 @@ export function RestaurantCard({ r, index = 0 }: { r: Restaurant; index?: number
             <img src={r.image} alt={r.name} loading="lazy" width={1024} height={640}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
             <span
-              className={`absolute top-3 right-3 z-10 rounded-full px-3 py-1 text-xs font-bold backdrop-blur-md ${
-                isOpen
-                  ? "bg-emerald-500/90 text-white shadow-lg shadow-emerald-900/25"
-                  : "bg-red-500/90 text-white shadow-lg shadow-red-900/25"
-              }`}
+              className={`absolute top-3 right-3 z-10 rounded-full px-3 py-1 text-xs font-bold backdrop-blur-md ${badgeInfo.bg}`}
             >
               <span className="flex items-center gap-1.5">
-                {isOpen ? (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                ) : (
-                  <XCircle className="h-3.5 w-3.5" />
-                )}
-                <span>{isOpen ? "Open now" : "Closed now"}</span>
+                {badgeInfo.icon}
+                <span>{badgeInfo.text}</span>
               </span>
             </span>
             {r.hasOffer ? (
@@ -57,7 +69,7 @@ export function RestaurantCard({ r, index = 0 }: { r: Restaurant; index?: number
                 <Clock className="h-3.5 w-3.5" />{r.deliveryTime}
               </div>
               <div className="flex items-center gap-1 text-[11px] font-bold text-brand-brown">
-                <span>🕒 {r.openingTime} - {r.closingTime}</span>
+                <span>🕒 {getTodayHours(r)}</span>
               </div>
             </div>
           </div>

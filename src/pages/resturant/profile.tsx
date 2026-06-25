@@ -10,9 +10,9 @@ import {
 import { toast } from "sonner";
 import { C } from "@/utils/theme";
 import { useAuth } from "@/context/AuthContext";
-import { restaurants } from "@/utils/data/mock";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { Link } from "@tanstack/react-router";
+import { apiRequest } from "@/utils/api";
 
 // Types for profile state
 interface WeeklyHour {
@@ -94,11 +94,28 @@ export function RestaurantProfile() {
   const [isSaving, setIsSaving] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isMobilePreviewOpen, setIsMobilePreviewOpen] = useState(false);
-  const { user } = useAuth();
-  const { updateRestaurantProfile } = useRestaurants();
-  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
-  const [logoImage, setLogoImage] = useState<string>(activeRestaurant.image);
-  const [coverImage, setCoverImage] = useState<string>("https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1000&auto=format&fit=crop&q=80");
+  const { user, token, updateUser } = useAuth();
+  const { restaurants, updateRestaurantProfile, refetch } = useRestaurants();
+  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0] || {
+    id: "",
+    name: user?.name || "",
+    image: "",
+    rating: 4.0,
+    deliveryTime: "20-30 min",
+    category: "Srilankan Foods",
+    location: "Trincomalee",
+    hasOffer: false,
+    openingTime: "08:00 AM",
+    closingTime: "10:00 PM",
+    deliveryRadius: 5,
+    deliveryAvailable: true,
+    categories: [],
+    menu: [],
+  };
+  const [logoImage, setLogoImage] = useState<string>("");
+  const [coverImage, setCoverImage] = useState<string>("");
+  const [hasProfile, setHasProfile] = useState<boolean>(true);
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(true);
 
   // Custom mock cuisine items
   const standardCuisines = [
@@ -107,38 +124,38 @@ export function RestaurantProfile() {
   ];
   // Profile data state
   const [profile, setProfile] = useState<ProfileState>({
-    name: activeRestaurant.name,
-    tagline: `Authentic ${activeRestaurant.category} Flavors`,
-    description: `${activeRestaurant.name} brings you the true taste of Trincomalee's culinary heritage. Specializing in ${activeRestaurant.category.toLowerCase()}, we pride ourselves on using locally sourced ingredients and traditional cooking techniques passed down through generations.`,
-    cuisineTypes: activeRestaurant.categories.slice(0, 4),
-    phone: "+94 26 222 3456",
-    whatsapp: "+94 77 123 4567",
-    email: `${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}@gmail.com`,
-    supportNumber: "+94 26 222 3458",
-    halalFriendly: true,
-    vegetarianFriendly: true,
-    dineIn: true,
-    takeaway: true,
-    delivery: true,
+    name: "",
+    tagline: "",
+    description: "",
+    cuisineTypes: [],
+    phone: "",
+    whatsapp: "",
+    email: "",
+    supportNumber: "",
+    halalFriendly: false,
+    vegetarianFriendly: false,
+    dineIn: false,
+    takeaway: false,
+    delivery: false,
 
     // Location
-    streetAddress: activeRestaurant.location.split(",")[0]?.trim() || "42 Dockyard Road",
-    city: "Trincomalee",
-    district: "Trincomalee",
-    postalCode: "31000",
-    lat: "8.5714",
-    lng: "81.2335",
-    deliveryRadius: 8,
+    streetAddress: "",
+    city: "",
+    district: "",
+    postalCode: "",
+    lat: "",
+    lng: "",
+    deliveryRadius: 5,
 
     // Delivery Settings
-    estimatedDeliveryTime: activeRestaurant.deliveryTime || "25-35 min",
-    deliveryFee: activeRestaurant.deliveryFee ?? 150,
-    minOrder: 500,
-    freeDeliveryThreshold: 2500,
+    estimatedDeliveryTime: "",
+    deliveryFee: 0,
+    minOrder: 0,
+    freeDeliveryThreshold: 0,
 
     // Opening Hours
-    openingTime: "08:00 AM",
-    closingTime: "10:00 PM",
+    openingTime: "",
+    closingTime: "",
     weeklyHours: {
       Monday: { open: true, from: "08:00 AM", to: "10:00 PM" },
       Tuesday: { open: true, from: "08:00 AM", to: "10:00 PM" },
@@ -152,24 +169,142 @@ export function RestaurantProfile() {
     temporaryClosure: false,
 
     // Social Links
-    facebook: `https://facebook.com/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
-    instagram: `https://instagram.com/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
-    tiktok: `https://tiktok.com/@${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
-    youtube: `https://youtube.com/c/${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}`,
-    website: `https://${activeRestaurant.name.toLowerCase().replace(/[\s.]+/g, "")}.com`,
+    facebook: "",
+    instagram: "",
+    tiktok: "",
+    youtube: "",
+    website: "",
 
     // Settings
     acceptOrders: true,
     showPublicly: true,
     vacationMode: false,
-    autoAcceptOrders: true,
+    autoAcceptOrders: false,
     cashOnDelivery: true,
     featuredRestaurant: false,
 
     // Reviews and Ratings
-    rating: activeRestaurant.rating ?? 4.5,
-    reviewsCount: activeRestaurant.reviewsCount ?? 184
+    rating: 0,
+    reviewsCount: 0
   });
+
+  // Load profile from database on mount
+  useEffect(() => {
+    if (!token) {
+      setIsLoadingProfile(false);
+      return;
+    }
+
+    const loadProfile = async () => {
+      try {
+        const response = await apiRequest<{
+          message: string;
+          restaurant: any;
+        }>("/restaurant/profile", {
+          method: "GET",
+          token,
+        });
+
+        const r = response.restaurant;
+        if (r) {
+          if (r.id && r.id !== user?.restaurantId) {
+            updateUser({ restaurantId: r.id });
+          }
+          setProfile({
+            name: r.name || "",
+            tagline: r.tagline || "",
+            description: r.description || "",
+            cuisineTypes: (r.cuisineTypes || []).map((c: string) => {
+              const upper = c.toUpperCase();
+              if (upper === 'SRILANKAN') return 'Rice and Curry';
+              if (upper === 'SOUTH_INDIAN') return 'South Indian';
+              if (upper === 'JUICES') return 'Juices';
+              return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase().replace('_', ' ');
+            }),
+            phone: r.phone || "",
+            whatsapp: r.whatsapp || "",
+            email: r.email || "",
+            supportNumber: r.supportNumber || "",
+            halalFriendly: !!r.halalFriendly,
+            vegetarianFriendly: !!r.vegetarianFriendly,
+            dineIn: !!r.dineIn,
+            takeaway: !!r.takeaway,
+            delivery: !!r.delivery,
+
+            // Location
+            streetAddress: r.streetAddress || "",
+            city: r.city || "",
+            district: r.district || "",
+            postalCode: r.postalCode || "",
+            lat: r.latitude ? String(r.latitude) : "",
+            lng: r.longitude ? String(r.longitude) : "",
+            deliveryRadius: r.deliveryRadius ?? 5,
+
+            // Delivery Settings
+            estimatedDeliveryTime: r.deliveryTime || "",
+            deliveryFee: r.deliveryFee ?? 0,
+            minOrder: r.minOrder ?? 0,
+            freeDeliveryThreshold: r.freeDeliveryThreshold ?? 0,
+
+            // Opening Hours
+            openingTime: r.openingTime || "",
+            closingTime: r.closingTime || "",
+            weeklyHours: (r.weeklyHours as any) || {
+              Monday: { open: true, from: "08:00 AM", to: "10:00 PM" },
+              Tuesday: { open: true, from: "08:00 AM", to: "10:00 PM" },
+              Wednesday: { open: true, from: "08:00 AM", to: "10:00 PM" },
+              Thursday: { open: true, from: "08:00 AM", to: "10:00 PM" },
+              Friday: { open: true, from: "08:00 AM", to: "11:00 PM" },
+              Saturday: { open: true, from: "08:00 AM", to: "11:00 PM" },
+              Sunday: { open: true, from: "09:00 AM", to: "10:00 PM" }
+            },
+            holidayMode: !!r.holidayMode,
+            temporaryClosure: !!r.temporaryClosure,
+
+            // Social Links
+            facebook: r.facebook || "",
+            instagram: r.instagram || "",
+            tiktok: r.tiktok || "",
+            youtube: r.youtube || "",
+            website: r.website || "",
+
+            // Settings
+            acceptOrders: !!r.acceptOrders,
+            showPublicly: !!r.showPublicly,
+            vacationMode: !!r.vacationMode,
+            autoAcceptOrders: !!r.autoAcceptOrders,
+            cashOnDelivery: !!r.cashOnDelivery,
+            featuredRestaurant: !!r.featuredRestaurant,
+
+            // Reviews and Ratings
+            rating: r.rating ?? 0,
+            reviewsCount: r.reviewsCount ?? 0,
+          });
+
+          if (r.logoImage) setLogoImage(r.logoImage);
+          if (r.coverImage) setCoverImage(r.coverImage);
+          setHasProfile(true);
+        }
+      } catch (err: any) {
+        console.error("Error loading restaurant profile:", err);
+        if (err.status === 404) {
+          setHasProfile(false);
+          // Pre-populate only the restaurant name and email from auth user if available
+          setProfile(prev => ({
+            ...prev,
+            name: user?.name || activeRestaurant?.name || "",
+            email: user?.email || "",
+          }));
+        } else {
+          toast.error("Failed to load restaurant profile from server.");
+        }
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [token, activeRestaurant, user]);
 
   // Calculate profile completion percentage
   const completionDetails = useMemo(() => {
@@ -268,28 +403,74 @@ export function RestaurantProfile() {
   const [isDragOverLogo, setIsDragOverLogo] = useState(false);
   const [isDragOverCover, setIsDragOverCover] = useState(false);
 
-  const simulateLogoUpload = (e: any) => {
-    e.preventDefault();
-    setIsDragOverLogo(false);
-    toast.info("Uploading restaurant logo...");
-    setTimeout(() => {
-      setLogoImage("https://images.unsplash.com/photo-1552566626-52f8b828add9?w=200&auto=format&fit=crop&q=80");
-      toast.success("Logo updated successfully!");
-    }, 1000);
+  const getFileFromEvent = (e: any) => {
+    if (e.target && e.target.files && e.target.files.length > 0) {
+      return e.target.files[0];
+    }
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      return e.dataTransfer.files[0];
+    }
+    return null;
   };
 
-  const simulateCoverUpload = (e: any) => {
+  const simulateLogoUpload = async (e: any) => {
+    e.preventDefault();
+    setIsDragOverLogo(false);
+    
+    const file = getFileFromEvent(e);
+    if (!file) return;
+
+    toast.info("Uploading restaurant logo...");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await apiRequest<{ message: string; url: string }>("/restaurant/upload", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+      
+      setLogoImage(res.url);
+      toast.success("Logo uploaded successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Upload failed", {
+        description: err.message || "Please make sure your Cloudinary environment keys are set up on the backend."
+      });
+    }
+  };
+
+  const simulateCoverUpload = async (e: any) => {
     e.preventDefault();
     setIsDragOverCover(false);
+    
+    const file = getFileFromEvent(e);
+    if (!file) return;
+
     toast.info("Uploading restaurant cover image...");
-    setTimeout(() => {
-      setCoverImage("https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80");
-      toast.success("Cover image updated successfully!");
-    }, 1200);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await apiRequest<{ message: string; url: string }>("/restaurant/upload", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+      
+      setCoverImage(res.url);
+      toast.success("Cover image uploaded successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Upload failed", {
+        description: err.message || "Please make sure your Cloudinary environment keys are set up on the backend."
+      });
+    }
   };
 
   // Main save action
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!profile.email.trim()) {
       setActiveTab("overview");
@@ -312,46 +493,122 @@ export function RestaurantProfile() {
 
     setEmailError(null);
     setIsSaving(true);
-    setTimeout(() => {
-      // Persist profile changes to the shared restaurant store (context + localStorage)
-      updateRestaurantProfile(activeRestaurant.id, {
+
+    try {
+      const payload = {
         name: profile.name,
         tagline: profile.tagline,
         description: profile.description,
+        logoImage: logoImage,
+        coverImage: coverImage,
+        cuisineTypes: profile.cuisineTypes,
+        streetAddress: profile.streetAddress,
+        city: profile.city,
+        district: profile.district,
+        postalCode: profile.postalCode,
+        latitude: profile.lat ? parseFloat(profile.lat) : undefined,
+        longitude: profile.lng ? parseFloat(profile.lng) : undefined,
         phone: profile.phone,
         whatsapp: profile.whatsapp,
         email: profile.email,
-        location: profile.streetAddress ? `${profile.streetAddress}, ${profile.city}` : activeRestaurant.location,
-        streetAddress: profile.streetAddress,
-        city: profile.city,
-        openingTime: profile.openingTime,
-        closingTime: profile.closingTime,
-        deliveryTime: profile.estimatedDeliveryTime,
-        deliveryFee: profile.deliveryFee,
-        deliveryAvailable: profile.delivery,
-        deliveryRadius: profile.deliveryRadius,
-        minOrder: profile.minOrder,
+        supportNumber: profile.supportNumber,
+        location: profile.streetAddress ? `${profile.streetAddress}, ${profile.city}` : (activeRestaurant?.location || "Trincomalee"),
+        rating: Number(profile.rating),
+        reviewsCount: Number(profile.reviewsCount),
         halalFriendly: profile.halalFriendly,
         vegetarianFriendly: profile.vegetarianFriendly,
         dineIn: profile.dineIn,
         takeaway: profile.takeaway,
         delivery: profile.delivery,
+        deliveryAvailable: profile.delivery,
+        deliveryRadius: Number(profile.deliveryRadius),
+        deliveryTime: profile.estimatedDeliveryTime,
+        deliveryFee: Number(profile.deliveryFee),
+        minOrder: Number(profile.minOrder),
+        freeDeliveryThreshold: Number(profile.freeDeliveryThreshold),
+        openingTime: profile.openingTime,
+        closingTime: profile.closingTime,
+        weeklyHours: profile.weeklyHours,
+        holidayMode: profile.holidayMode,
+        temporaryClosure: profile.temporaryClosure,
         facebook: profile.facebook,
         instagram: profile.instagram,
         tiktok: profile.tiktok,
         youtube: profile.youtube,
         website: profile.website,
-        logoImage: logoImage,
-        coverImage: coverImage,
-        rating: Number(profile.rating),
-        reviewsCount: Number(profile.reviewsCount),
-      });
-      setIsSaving(false);
+        acceptOrders: profile.acceptOrders,
+        showPublicly: profile.showPublicly,
+        vacationMode: profile.vacationMode,
+        autoAcceptOrders: profile.autoAcceptOrders,
+        cashOnDelivery: profile.cashOnDelivery,
+        featuredRestaurant: profile.featuredRestaurant,
+      };
+
+      if (token) {
+        const response = await apiRequest<{
+          message: string;
+          restaurant: any;
+        }>("/restaurant/profile", {
+          method: hasProfile ? "PUT" : "POST",
+          token,
+          body: payload,
+        });
+        setHasProfile(true);
+
+        if (!hasProfile && response?.restaurant?.id) {
+          const newId = response.restaurant.id;
+          updateUser({ restaurantId: newId });
+          await refetch();
+        } else if (activeRestaurant) {
+          // Persist profile changes to the shared restaurant store (context + localStorage)
+          updateRestaurantProfile(activeRestaurant.id, {
+            name: profile.name,
+            tagline: profile.tagline,
+            description: profile.description,
+            phone: profile.phone,
+            whatsapp: profile.whatsapp,
+            email: profile.email,
+            location: profile.streetAddress ? `${profile.streetAddress}, ${profile.city}` : (activeRestaurant?.location || "Trincomalee"),
+            streetAddress: profile.streetAddress,
+            city: profile.city,
+            openingTime: profile.openingTime,
+            closingTime: profile.closingTime,
+            deliveryTime: profile.estimatedDeliveryTime,
+            deliveryFee: profile.deliveryFee,
+            deliveryAvailable: profile.delivery,
+            deliveryRadius: profile.deliveryRadius,
+            minOrder: profile.minOrder,
+            halalFriendly: profile.halalFriendly,
+            vegetarianFriendly: profile.vegetarianFriendly,
+            dineIn: profile.dineIn,
+            takeaway: profile.takeaway,
+            delivery: profile.delivery,
+            facebook: profile.facebook,
+            instagram: profile.instagram,
+            tiktok: profile.tiktok,
+            youtube: profile.youtube,
+            website: profile.website,
+            logoImage: logoImage,
+            coverImage: coverImage,
+            rating: Number(profile.rating),
+            reviewsCount: Number(profile.reviewsCount),
+          });
+        }
+      }
+
       toast.success("Restaurant Profile saved successfully!", {
-        description: "All changes are now live and visible to customers.",
+        description: "All changes are now live and saved in the database.",
         duration: 4000
       });
-    }, 1800);
+    } catch (err: any) {
+      console.error("Error saving restaurant profile:", err);
+      toast.error("Failed to save changes to the database.", {
+        description: err.message || "Please check your network connection.",
+        duration: 4000
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Determine current active operating status
@@ -362,6 +619,21 @@ export function RestaurantProfile() {
     return { label: "Open Now", color: "bg-emerald-500", text: "text-emerald-500", desc: "Accepting Orders" };
   }, [profile.acceptOrders, profile.holidayMode, profile.temporaryClosure]);
 
+  if (isLoadingProfile) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="h-10 w-10 border-4 border-brand-burnt dark:border-brand-orange border-t-transparent rounded-full"
+        />
+        <p className="text-sm font-bold text-brand-brown/70 dark:text-brand-cream/70 animate-pulse">
+          Loading Restaurant Profile...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 15 }}
@@ -370,7 +642,7 @@ export function RestaurantProfile() {
       className="flex flex-col gap-6"
     >
       {/* ── STICKY HEADER ─────────────────────────────────────────────── */}
-      <div className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl px-5 py-4 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl px-5 py-4 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl md:text-3xl font-black text-brand-brown dark:text-brand-orange tracking-tight">
@@ -387,7 +659,7 @@ export function RestaurantProfile() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           <button
             onClick={() => setIsMobilePreviewOpen(true)}
             className="lg:hidden inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-brand-cream/30 hover:bg-brand-cream/50 text-brand-brown dark:bg-brand-brown/30 dark:hover:bg-brand-brown/50 dark:text-brand-cream border border-brand-cream/40 dark:border-brand-brown/40 transition-colors"
@@ -399,7 +671,7 @@ export function RestaurantProfile() {
           <button
             onClick={handleSaveAll}
             disabled={isSaving}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-brand-burnt hover:bg-brand-burnt/95 text-white dark:bg-brand-orange dark:hover:bg-brand-orange/95 dark:text-brand-brown shadow-md hover:shadow-lg disabled:opacity-70 transition-all cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-brand-burnt hover:bg-brand-burnt/95 text-white dark:bg-brand-orange dark:hover:bg-brand-orange/95 dark:text-brand-brown shadow-md hover:shadow-lg disabled:opacity-70 transition-all cursor-pointer"
           >
             {isSaving ? (
               <>
@@ -423,7 +695,7 @@ export function RestaurantProfile() {
       {/* ── PROFILE COMPLETION PROGRESS CARD ──────────────────────────── */}
       <motion.div
         layout
-        className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl p-5 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6"
+        className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl p-5 border border-brand-cream/30 dark:border-zinc-700/50 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-6"
       >
         <div className="flex items-center gap-4">
           <div className="relative flex items-center justify-center h-16 w-16 flex-shrink-0">
@@ -467,7 +739,7 @@ export function RestaurantProfile() {
         </div>
 
         {/* Small checklist display */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t md:border-t-0 md:border-l border-zinc-200/80 dark:border-zinc-700/50 pt-4 md:pt-0 md:pl-6 max-w-xl">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t lg:border-t-0 lg:border-l border-zinc-200/80 dark:border-zinc-700/50 pt-4 lg:pt-0 lg:pl-6 max-w-xl">
           {completionDetails.checklist.map((item, idx) => (
             <button
               key={idx}
@@ -486,7 +758,7 @@ export function RestaurantProfile() {
       </motion.div>
 
       {/* ── TAB NAVIGATION ────────────────────────────────────────────── */}
-      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 pb-2 md:mx-0 md:px-0 sticky top-0 z-30 bg-[#FAF7F2]/95 dark:bg-zinc-900/95 backdrop-blur-md -mt-2 pt-2">
+      <div className="overflow-x-auto tabs-scrollbar -mx-4 px-4 pb-3.5 md:mx-0 md:px-0 sticky top-0 z-30 bg-[#FAF7F2]/95 dark:bg-zinc-900/95 backdrop-blur-md -mt-2 pt-2">
         <div className="flex border-b border-zinc-200/80 dark:border-zinc-800/80 min-w-max">
           {tabs.map((tab) => {
             const TabIcon = tab.icon;
@@ -1110,51 +1382,56 @@ export function RestaurantProfile() {
                     {Object.entries(profile.weeklyHours).map(([day, hrs]) => (
                       <div
                         key={day}
-                        className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-3.5 rounded-xl border transition-colors ${hrs.open
+                        className={`weekly-hours-row grid items-center px-4 py-3 rounded-xl border transition-colors ${hrs.open
                           ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/40'
                           : 'border-zinc-150 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-70'
                           }`}
+                        style={{ gridTemplateColumns: '90px 110px 1fr' }}
                       >
-                        {/* Day & Open Status Toggle */}
-                        <div className="flex items-center justify-between sm:justify-start gap-4">
-                          <span className="text-xs font-extrabold w-24 text-zinc-700 dark:text-zinc-300">{day}</span>
-                          <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={hrs.open}
-                              onChange={(e) => handleDayHourChange(day, "open", e.target.checked)}
-                              className="h-4 w-4 rounded text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
-                            />
-                            <span className={`text-[10px] font-bold ${hrs.open ? 'text-emerald-500' : 'text-zinc-400'}`}>
-                              {hrs.open ? "OPENING" : "CLOSED"}
-                            </span>
-                          </label>
-                        </div>
+                        {/* Col 1 — Day name */}
+                        <span className="text-xs font-extrabold text-zinc-700 dark:text-zinc-300 truncate">{day}</span>
 
-                        {/* Hours inputs if open */}
-                        {hrs.open ? (
-                          <div className="flex items-center gap-2 mt-3.5 sm:mt-0">
-                            <input
-                              type="text"
-                              value={hrs.from}
-                              onChange={(e) => handleDayHourChange(day, "from", e.target.value)}
-                              className="w-24 text-center px-2.5 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
-                              placeholder="08:00 AM"
-                            />
-                            <span className="text-xs font-bold text-zinc-400">to</span>
-                            <input
-                              type="text"
-                              value={hrs.to}
-                              onChange={(e) => handleDayHourChange(day, "to", e.target.value)}
-                              className="w-24 text-center px-2.5 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
-                              placeholder="10:00 PM"
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-xs font-bold text-zinc-400 italic text-right mt-2 sm:mt-0">Store closed all day</span>
-                        )}
+                        {/* Col 2 — Open/Closed checkbox + status */}
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hrs.open}
+                            onChange={(e) => handleDayHourChange(day, "open", e.target.checked)}
+                            className="h-4 w-4 rounded text-brand-burnt focus:ring-brand-burnt accent-brand-burnt"
+                          />
+                          <span className={`weekly-hours-status-text text-[10px] font-bold ${hrs.open ? 'text-emerald-500' : 'text-zinc-400'}`}>
+                            {hrs.open ? 'OPENING' : 'CLOSED'}
+                          </span>
+                        </label>
+
+                        {/* Col 3 — Time inputs or closed message */}
+                        <div className="flex items-center justify-end gap-2">
+                          {hrs.open ? (
+                            <>
+                              <input
+                                type="text"
+                                value={hrs.from}
+                                onChange={(e) => handleDayHourChange(day, "from", e.target.value)}
+                                className="w-[82px] text-center px-2 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
+                                placeholder="08:00 AM"
+                              />
+                              <span className="text-xs font-bold text-zinc-400 shrink-0">to</span>
+                              <input
+                                type="text"
+                                value={hrs.to}
+                                onChange={(e) => handleDayHourChange(day, "to", e.target.value)}
+                                className="w-[82px] text-center px-2 py-1.5 text-xs font-bold border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-burnt"
+                                placeholder="10:00 PM"
+                              />
+                            </>
+                          ) : (
+                            <span className="text-xs font-bold text-zinc-400 italic">Store closed all day</span>
+                          )}
+                        </div>
                       </div>
                     ))}
+
+
                   </div>
                 </div>
               )}

@@ -11,7 +11,7 @@ import loginBg from "@/assets/login.png";
 
 export function AdminLogin() {
   const navigate = useNavigate();
-  const { adminLogin, restaurantLogin, isAuthenticated, user } = useAuth();
+  const { businessLogin, isAuthenticated, user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,20 +34,15 @@ export function AdminLogin() {
     setLoading(true);
     setError("");
 
-    // Try main admin first, then restaurant admin
     try {
-      const loggedInUser = await adminLogin({ email, password });
-      navigate({ to: loggedInUser.role === "main_admin" ? "/admin/dashboard" : "/restaurant/dashboard" });
-      return;
-    } catch {
-      // Not a main admin — try restaurant admin
-    }
-
-    try {
-      await restaurantLogin({ email, password });
-      navigate({ to: "/restaurant/dashboard" });
-    } catch {
-      setError("Invalid credentials. Please check your email and password.");
+      const loggedInUser = await businessLogin({ email, password });
+      if (loggedInUser.role === "main_admin") {
+        navigate({ to: "/admin/dashboard" });
+      } else {
+        navigate({ to: "/restaurant/dashboard" });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid credentials. Please check your email and password.");
       setLoading(false);
     }
   };

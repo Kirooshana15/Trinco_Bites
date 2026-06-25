@@ -12,7 +12,7 @@ import { Footer } from "@/components/Footer";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { useOrders } from "@/context/OrderContext";
-import { useRestaurants } from "@/context/RestaurantContext";
+import { useRestaurants, type Offer } from "@/context/RestaurantContext";
 import { isRestaurantOpen } from "@/utils/time";
 import { AddressesListView, AddAddressFormView } from "./location";
 import { getCartItemPrices, formatPrice, VAT_RATE } from "@/utils/pricing";
@@ -81,7 +81,7 @@ function getHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: nu
 }
 
 export function Checkout() {
-  const { findRestaurant } = useRestaurants();
+  const { findRestaurant, offers } = useRestaurants();
   const { items, total, clear } = useCart();
   const {
     selectedLocation,
@@ -102,6 +102,40 @@ export function Checkout() {
   const restaurant = useMemo(() => {
     return items.length > 0 ? findRestaurant(items[0].restaurantId) : undefined;
   }, [items, findRestaurant]);
+
+  // Dynamically default payment method if COD is disabled by restaurant
+  useEffect(() => {
+    if (restaurant && restaurant.cashOnDelivery === false) {
+      setPay("card");
+    }
+  }, [restaurant]);
+
+  // Dynamically default order type if delivery is disabled by restaurant
+  useEffect(() => {
+    if (restaurant && restaurant.deliveryAvailable === false) {
+      setOrderType("Self Pickup");
+    }
+  }, [restaurant]);
+
+  const restaurantStatus = useMemo(() => {
+    if (!restaurant) return { allowed: true, message: "" };
+    if (restaurant.temporaryClosure) {
+      return { allowed: false, message: "This restaurant is temporarily closed. You cannot place this order right now." };
+    }
+    if (restaurant.holidayMode) {
+      return { allowed: false, message: "This restaurant is closed for holidays. You cannot place this order right now." };
+    }
+    if (restaurant.vacationMode) {
+      return { allowed: false, message: "This restaurant is currently on vacation. You cannot place this order right now." };
+    }
+    if (restaurant.acceptOrders === false) {
+      return { allowed: false, message: "This restaurant's kitchen is busy and not accepting new orders right now." };
+    }
+    if (!isRestaurantOpen(restaurant)) {
+      return { allowed: false, message: "This restaurant is currently closed. You cannot place this order right now." };
+    }
+    return { allowed: true, message: "" };
+  }, [restaurant]);
 
   // Compute distance in km
   const distance = useMemo(() => {
@@ -161,14 +195,113 @@ export function Checkout() {
     return parseFloat(getHaversineDistance(restCoords.lat, restCoords.lng, custLat, custLng).toFixed(1));
   }, [selectedLocation, restaurant]);
 
+  // Check if there is an active FREE_DELIVERY offer for this restaurant
+  const hasFreeDeliveryOffer = useMemo(() => {
+    if (!restaurant) return false;
+    
+    // Check if any cart item has applied offer of type FREE_DELIVERY
+    const cartHasFreeDelivery = items.some(it => it.appliedOffer?.type === 'FREE_DELIVERY');
+    if (cartHasFreeDelivery) return true;
+
+    // Check if there is an active offer of type FREE_DELIVERY for this restaurant
+    const activeOffers = offers.filter(o => o.restaurantId === restaurant.id);
+    const getAutomaticOfferStatus = (offer: Offer) => {
+      if (offer.status === "Draft") return "Draft";
+      const now = new Date();
+      const todayStr = now.getFullYear() + "-" + 
+        String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+        String(now.getDate()).padStart(2, "0");
+      if (todayStr > offer.endDate) return "Expired";
+      if (todayStr < offer.startDate) return "Scheduled";
+      const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      if (!offer.activeDays.includes(daysMap[now.getDay()])) return "Scheduled";
+      return "Active";
+    };
+    return activeOffers.some(o => o.type === 'FREE_DELIVERY' && getAutomaticOfferStatus(o) === 'Active');
+  }, [items, offers, restaurant]);
+
   // Compute delivery fee
   const deliveryFee = useMemo(() => {
-    if (orderType !== "Delivery" || !restaurant) return 0;
+    if (orderType !== "Delivery" || !restaurant || restaurant.deliveryAvailable === false || hasFreeDeliveryOffer) return 0;
+    
+    if (restaurant.freeDeliveryThreshold && restaurant.freeDeliveryThreshold > 0 && total >= restaurant.freeDeliveryThreshold) {
+      return 0;
+    }
+
+    if (restaurant.deliveryFee !== undefined && restaurant.deliveryFee !== null) {
+      return restaurant.deliveryFee;
+    }
     
     const RATE_PER_KM = 50;
     const calculated = Math.round(distance * RATE_PER_KM);
     return calculated;
-  }, [orderType, restaurant, distance]);
+  }, [orderType, restaurant, distance, hasFreeDeliveryOffer, total]);
+
+  // Check if there is an active order-level offer applied
+  const orderDiscount = useMemo(() => {
+    if (!restaurant) return 0;
+    // Look at active offers for this restaurant
+    const getAutomaticOfferStatus = (offer: Offer) => {
+      if (offer.status === "Draft") return "Draft";
+      const now = new Date();
+      const todayStr = now.getFullYear() + "-" + 
+        String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+        String(now.getDate()).padStart(2, "0");
+      if (todayStr > offer.endDate) return "Expired";
+      if (todayStr < offer.startDate) return "Scheduled";
+      const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      if (!offer.activeDays.includes(daysMap[now.getDay()])) return "Scheduled";
+      return "Active";
+    };
+    const activeOffers = offers.filter(o => o.restaurantId === restaurant.id && getAutomaticOfferStatus(o) === "Active");
+    
+    let discount = 0;
+    
+    // Find FIRST_ORDER_DISCOUNT
+    const firstOrderOffer = activeOffers.find(o => o.type === "FIRST_ORDER_DISCOUNT");
+    if (firstOrderOffer) {
+      // Extract percentage or amount
+      const pctMatch = firstOrderOffer.discountBadge.match(/(\d+)%/);
+      if (pctMatch) {
+        discount = total * (parseInt(pctMatch[1], 10) / 100);
+      } else {
+        const amtMatch = firstOrderOffer.discountBadge.match(/Rs\.?\s*(\d+)/i) || firstOrderOffer.discountBadge.match(/(\d+)\s*Off/i);
+        if (amtMatch) {
+          discount = parseFloat(amtMatch[1]);
+        }
+      }
+    }
+    
+    // Find MINIMUM_ORDER discount
+    const minOrderOffer = activeOffers.find(o => o.type === "MINIMUM_ORDER" && total >= (o.minOrderAmount || 0));
+    if (minOrderOffer) {
+      const pctMatch = minOrderOffer.discountBadge.match(/(\d+)%/);
+      if (pctMatch) {
+        discount = Math.max(discount, total * (parseInt(pctMatch[1], 10) / 100));
+      } else {
+        const amtMatch = minOrderOffer.discountBadge.match(/Rs\.?\s*(\d+)/i) || minOrderOffer.discountBadge.match(/(\d+)\s*Off/i);
+        if (amtMatch) {
+          discount = Math.max(discount, parseFloat(amtMatch[1]));
+        }
+      }
+    }
+
+    // Find FIXED_AMOUNT_DISCOUNT (when not item-specific, i.e. no menuItemId)
+    const fixedAmtOffer = activeOffers.find(o => o.type === "FIXED_AMOUNT_DISCOUNT" && !o.menuItemId && total >= (o.minOrderAmount || 0));
+    if (fixedAmtOffer) {
+      const amtMatch = fixedAmtOffer.discountBadge.match(/Rs\.?\s*(\d+)/i) || fixedAmtOffer.discountBadge.match(/(\d+)\s*Off/i);
+      if (amtMatch) {
+        discount = Math.max(discount, parseFloat(amtMatch[1]));
+      }
+    }
+
+    return Math.round(discount);
+  }, [offers, restaurant, total]);
+
+  const isBelowMinOrder = useMemo(() => {
+    if (!restaurant || restaurant.minOrder === undefined || restaurant.minOrder === null) return false;
+    return total < restaurant.minOrder;
+  }, [restaurant, total]);
 
   // Bottom drawer address selector states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -177,7 +310,20 @@ export function Checkout() {
 
   const [loc, setLoc] = useState("");
   const [cardNum, setCardNum] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvc, setCardCvc] = useState("");
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [contact, setContact] = useState({ name: "", phone: "", email: "" });
+
+  const formatExpiry = (val: string) => {
+    const clean = val.replace(/\D/g, "").slice(0, 4);
+    if (clean.length > 2) {
+      return `${clean.slice(0, 2)} / ${clean.slice(2)}`;
+    }
+    return clean;
+  };
+
+  const formatCvc = (val: string) => val.replace(/\D/g, "").slice(0, 4);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -230,33 +376,64 @@ export function Checkout() {
       .replace(/(.{4})/g, "$1 ")
       .trim();
 
-  const place = () => {
-    if (hasClosedRestaurantItems) return;
+  const place = async () => {
+    if (!restaurantStatus.allowed || isBelowMinOrder || isProcessingPayment) return;
+
+    if (pay === "card") {
+      const cleanCard = cardNum.replace(/\s/g, "");
+      if (cleanCard.length !== 16) {
+        alert("Please enter a valid 16-digit card number.");
+        return;
+      }
+      const cleanExpiry = cardExpiry.replace(/\s/g, "");
+      if (cleanExpiry.length !== 5 || !cleanExpiry.includes("/")) {
+        alert("Please enter a valid expiry date in MM / YY format.");
+        return;
+      }
+      const cleanCvc = cardCvc.replace(/\s/g, "");
+      if (cleanCvc.length < 3 || cleanCvc.length > 4) {
+        alert("Please enter a valid 3 or 4-digit security code (CVC).");
+        return;
+      }
+    }
+
     const restaurantId = items.length > 0 ? items[0].restaurantId : "";
     const restaurantName =
       items.length > 0
         ? findRestaurant(items[0].restaurantId)?.name ?? "Trinco Bites"
         : "Trinco Bites";
 
-    const vatAmount = Math.round(total * VAT_RATE);
-    const grandTotal = total + deliveryFee + vatAmount;
+    const finalSubtotal = Math.max(0, total - orderDiscount);
+    const vatAmount = Math.round(finalSubtotal * VAT_RATE);
+    const grandTotal = finalSubtotal + deliveryFee + vatAmount;
 
-    placeOrder({
-      restaurantId,
-      restaurantName,
-      items,
-      orderType,
-      subtotal: total,
-      tax: vatAmount,
-      deliveryFee,
-      total: grandTotal,
-      paymentMethod: pay,
-      contact,
-      deliveryAddress: loc || selectedLocation.address || selectedLocation.label,
-      locationLabel: selectedLocation.label,
-    });
-    clear();
-    navigate({ to: "/track" });
+    setIsProcessingPayment(true);
+
+    try {
+      await placeOrder({
+        restaurantId,
+        restaurantName,
+        items,
+        orderType,
+        subtotal: finalSubtotal,
+        tax: vatAmount,
+        deliveryFee,
+        total: grandTotal,
+        paymentMethod: pay,
+        contact,
+        deliveryAddress: loc || selectedLocation.address || selectedLocation.label,
+        locationLabel: selectedLocation.label,
+        cardNumber: pay === "card" ? cardNum : undefined,
+        cardExpiry: pay === "card" ? cardExpiry : undefined,
+        cardCvc: pay === "card" ? cardCvc : undefined,
+      } as any);
+      clear();
+      navigate({ to: "/track" });
+    } catch (err: any) {
+      alert(err.message || "Failed to place order. Please try again.");
+    } finally {
+      setIsProcessingPayment(false);
+    }
   };
 
   return (
@@ -362,26 +539,35 @@ export function Checkout() {
           <Section title="Order Type" icon={MapPin}>
             <div className="grid grid-cols-2 gap-3">
               <button
+                disabled={restaurant?.deliveryAvailable === false}
                 onClick={() => setOrderType("Delivery")}
-                className="p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden transition-all duration-200"
+                className={`p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden transition-all duration-200 ${
+                  restaurant?.deliveryAvailable === false ? "opacity-50 cursor-not-allowed" : ""
+                }`}
                 style={{
-                  border: orderType === "Delivery" ? "2px solid #D45113" : "2px solid rgba(248,221,164,0.35)",
-                  background: orderType === "Delivery"
-                    ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
-                    : "#ffffff",
-                  boxShadow: orderType === "Delivery" ? "0 4px 16px rgba(212,81,19,0.12)" : "none",
+                  border: orderType === "Delivery" && restaurant?.deliveryAvailable !== false
+                    ? "2px solid #D45113"
+                    : "2px solid rgba(248,221,164,0.35)",
+                  background: restaurant?.deliveryAvailable === false
+                    ? "rgba(129,52,5,0.03)"
+                    : orderType === "Delivery"
+                      ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
+                      : "#ffffff",
+                  boxShadow: orderType === "Delivery" && restaurant?.deliveryAvailable !== false
+                    ? "0 4px 16px rgba(212,81,19,0.12)"
+                    : "none",
                 }}
               >
-                {orderType === "Delivery" && <span className="absolute top-2 right-2 text-[10px]">✅</span>}
+                {orderType === "Delivery" && restaurant?.deliveryAvailable !== false && <span className="absolute top-2 right-2 text-[10px]">✅</span>}
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
-                  style={{ background: orderType === "Delivery" ? "linear-gradient(135deg,#D45113,#813405)" : "rgba(248,221,164,0.3)" }}>
+                  style={{ background: orderType === "Delivery" && restaurant?.deliveryAvailable !== false ? "linear-gradient(135deg,#D45113,#813405)" : "rgba(248,221,164,0.3)" }}>
                   <span>🛵</span>
                 </div>
-                <span className="text-sm font-black leading-snug" style={{ color: orderType === "Delivery" ? "#813405" : "#b0a090" }}>
+                <span className="text-sm font-black leading-snug" style={{ color: orderType === "Delivery" && restaurant?.deliveryAvailable !== false ? "#813405" : "#b0a090" }}>
                   Delivery
                 </span>
-                <span className="text-[10px] font-semibold" style={{ color: orderType === "Delivery" ? "#D45113" : "#c0b0a0" }}>
-                  + Rs. {deliveryFee} delivery fee ({distance} km)
+                <span className="text-[10px] font-semibold" style={{ color: orderType === "Delivery" && restaurant?.deliveryAvailable !== false ? "#D45113" : "#c0b0a0" }}>
+                  {restaurant?.deliveryAvailable === false ? "Delivery Unavailable" : `+ Rs. ${deliveryFee} delivery fee (${distance} km)`}
                 </span>
               </button>
               <button
@@ -413,7 +599,15 @@ export function Checkout() {
           {/* Payment */}
           <Section title="Payment Method" icon={Wallet}>
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <PayOpt active={pay === "cash"} onClick={() => setPay("cash")} icon={Wallet} label="Cash on Delivery" emoji="💵" />
+              <PayOpt 
+                active={pay === "cash"} 
+                onClick={() => setPay("cash")} 
+                icon={Wallet} 
+                label="Cash on Delivery" 
+                emoji="💵" 
+                disabled={restaurant?.cashOnDelivery === false}
+                tooltip={restaurant?.cashOnDelivery === false ? "Cash on Delivery is disabled by this restaurant." : undefined}
+              />
               <PayOpt active={pay === "card"} onClick={() => setPay("card")} icon={CreditCard} label="Pay by Card" emoji="💳" />
             </div>
 
@@ -509,6 +703,8 @@ export function Checkout() {
                         </label>
                         <input
                           type="text"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(formatExpiry(e.target.value))}
                           placeholder="MM / YY"
                           maxLength={7}
                           className="checkout-input"
@@ -524,6 +720,8 @@ export function Checkout() {
                         <div className="relative">
                           <input
                             type="password"
+                            value={cardCvc}
+                            onChange={(e) => setCardCvc(formatCvc(e.target.value))}
                             placeholder="CVC"
                             maxLength={4}
                             className="checkout-input pr-11"
@@ -556,9 +754,18 @@ export function Checkout() {
             <h3 className="font-black text-[#813405] text-sm mb-4 uppercase tracking-widest text-[10px]">
               🧾 Order Summary
             </h3>
-            {hasClosedRestaurantItems && (
-              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
-                This restaurant is currently closed. You cannot place this order right now.
+            {!restaurantStatus.allowed && (
+              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600">
+                {restaurantStatus.message}
+              </div>
+            )}
+            {isBelowMinOrder && (
+              <div className="mb-4 rounded-2xl border border-[#F8DDA4] bg-[#FFF5E6]/90 backdrop-blur-sm px-4 py-3 text-xs font-extrabold text-[#813405] flex items-center gap-2.5 shadow-[0_4px_12px_rgba(129,52,5,0.04)]">
+                <span className="text-base">⚠️</span>
+                <span>
+                  The minimum order value for <span className="text-[#D45113]">{restaurant?.name}</span> is {restaurant?.minOrder ? formatPrice(restaurant.minOrder) : ""}. 
+                  Please add {restaurant?.minOrder ? formatPrice(restaurant.minOrder - total) : ""} more to place your order.
+                </span>
               </div>
             )}
             {/* Ordered Items List */}
@@ -566,7 +773,7 @@ export function Checkout() {
               {items.map((it) => {
                 const prices = getCartItemPrices(it);
                 return (
-                  <div key={it.id} className="text-xs space-y-1 bg-white/50 border border-[#F8DDA4]/25 p-3 rounded-xl">
+                  <div key={it.dbId || it.id} className="text-xs space-y-1 bg-white/50 border border-[#F8DDA4]/25 p-3 rounded-xl">
                     <div className="flex justify-between font-bold text-[#813405]">
                       <span className="truncate max-w-[70%] flex items-center gap-1 flex-wrap">
                         {it.name}
@@ -576,8 +783,8 @@ export function Checkout() {
                           </span>
                         )}
                         {it.appliedOffer && (
-                          <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-0.5">
-                            🎁 {it.appliedOffer.discountBadge}
+                          <span className="text-[9px] font-black text-emerald-650 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-0.5">
+                            🏷️ {it.appliedOffer.discountBadge} Applied
                           </span>
                         )}
                         <span className="ml-1 text-slate-400 text-[10px]">x{it.quantity}</span>
@@ -585,7 +792,7 @@ export function Checkout() {
                       <span>{formatPrice(prices.itemTotal)}</span>
                     </div>
                     
-                    {it.appliedOffer?.id === "O-205" && (
+                    {(it.appliedOffer?.type === "BUY_ONE_GET_ONE" || it.appliedOffer?.id === "O-205") && (
                       <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/60 border border-emerald-100/50 flex items-center justify-between text-[11px] text-emerald-850 font-bold">
                         <span className="flex items-center gap-1">
                           🎁 {it.quantity}x {it.name} ({it.selectedSize || "Regular"}) [FREE BOGO]
@@ -597,7 +804,14 @@ export function Checkout() {
                     <div className="text-[11px] text-[#813405]/70 pl-2 space-y-0.5 border-l border-[#F8DDA4]">
                       <div className="flex justify-between">
                         <span>Base Price ({it.quantity}x {formatPrice(prices.basePrice)})</span>
-                        <span>{formatPrice(prices.totalBasePrice)}</span>
+                        {it.appliedOffer && prices.basePrice < (it.selectedSize === "Large" ? it.price * 1.5 : it.price) ? (
+                          <span className="font-semibold flex items-center gap-1.5">
+                            <span className="text-slate-400 line-through font-normal">{formatPrice((it.selectedSize === "Large" ? it.price * 1.5 : it.price) * it.quantity)}</span>
+                            <span>{formatPrice(prices.totalBasePrice)}</span>
+                          </span>
+                        ) : (
+                          <span className="font-semibold">{formatPrice(prices.totalBasePrice)}</span>
+                        )}
                       </div>
                       
                       {it.selectedExtras && it.selectedExtras.length > 0 && (
@@ -624,15 +838,23 @@ export function Checkout() {
               <span className="text-slate-400 text-sm">Subtotal</span>
               <span className="font-bold text-[#813405]">{formatPrice(total)}</span>
             </div>
+            {orderDiscount > 0 && (
+              <div className="flex justify-between items-center mb-3 text-emerald-600 font-black">
+                <span className="text-sm">Order Discount</span>
+                <span>-{formatPrice(orderDiscount)}</span>
+              </div>
+            )}
             {orderType === "Delivery" && (
               <div className="flex justify-between items-center mb-2">
-                <span className="text-slate-400 text-sm">🛵 Delivery Fee (Rs. 50/km · {distance} km)</span>
+                <span className="text-slate-400 text-sm">
+                  🛵 Delivery Fee {restaurant?.deliveryFee !== undefined && restaurant?.deliveryFee !== null ? `(${distance} km)` : `(Rs. 50/km · ${distance} km)`}
+                </span>
                 <span className="font-bold text-[#813405]">{formatPrice(deliveryFee)}</span>
               </div>
             )}
             <div className="flex justify-between items-center mb-4">
               <span className="text-slate-400 text-sm">🇱🇰 VAT (18%)</span>
-              <span className="font-bold text-[#813405]">{formatPrice(Math.round(total * VAT_RATE))}</span>
+              <span className="font-bold text-[#813405]">{formatPrice(Math.round(Math.max(0, total - orderDiscount) * VAT_RATE))}</span>
             </div>
             <div
               className="h-px mb-4 mt-1"
@@ -641,27 +863,42 @@ export function Checkout() {
             <div className="flex justify-between font-black text-xl text-[#813405] mb-7">
               <span style={{ fontFamily: "var(--font-heading)" }}>Total</span>
               <span style={{ fontFamily: "var(--font-heading)" }}>
-                {formatPrice(total + deliveryFee + Math.round(total * VAT_RATE))}
+                {formatPrice(Math.max(0, total - orderDiscount) + deliveryFee + Math.round(Math.max(0, total - orderDiscount) * VAT_RATE))}
               </span>
             </div>
 
             <motion.button
-              whileTap={{ scale: 0.97 }}
+              whileTap={!restaurantStatus.allowed || isBelowMinOrder || isProcessingPayment ? undefined : { scale: 0.97 }}
               onClick={place}
-              disabled={hasClosedRestaurantItems}
-              className="w-full text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm relative overflow-hidden"
+              disabled={!restaurantStatus.allowed || isBelowMinOrder || isProcessingPayment}
+              className="w-full text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm relative overflow-hidden flex items-center justify-center gap-2"
               style={{
-                background: hasClosedRestaurantItems
+                background: (!restaurantStatus.allowed || isBelowMinOrder)
                   ? "rgba(148,163,184,0.8)"
-                  : "linear-gradient(135deg, #D45113 0%, #813405 100%)",
-                boxShadow: hasClosedRestaurantItems
+                  : isProcessingPayment
+                    ? "linear-gradient(135deg, #D45113 0%, #813405 100%)"
+                    : "linear-gradient(135deg, #D45113 0%, #813405 100%)",
+                opacity: isProcessingPayment ? 0.8 : 1,
+                boxShadow: (!restaurantStatus.allowed || isBelowMinOrder || isProcessingPayment)
                   ? "none"
                   : "0 8px 28px rgba(212,81,19,0.38), inset 0 1px 0 rgba(255,255,255,0.15)",
               }}
             >
               {/* inner gloss */}
               <span className="absolute inset-x-0 top-0 h-1/2 bg-white/10 rounded-t-2xl pointer-events-none" />
-              🛒 &nbsp;Place Order
+              {isProcessingPayment ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing Payment...
+                </span>
+              ) : isBelowMinOrder 
+                ? `Min. Order LKR ${restaurant?.minOrder} Required`
+                : !restaurantStatus.allowed 
+                  ? "Restaurant Unavailable" 
+                  : "🛒 Place Order"}
             </motion.button>
           </div>
 
@@ -756,6 +993,13 @@ export function Checkout() {
           border-color: #D45113;
           box-shadow: 0 0 0 3px rgba(212,81,19,0.1);
         }
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
     </div>
   );
@@ -804,28 +1048,34 @@ function Field({ label, icon, children }: { label: string; icon: React.ReactNode
   );
 }
 
-function PayOpt({ active, onClick, icon: Icon, label, emoji }: any) {
+function PayOpt({ active, onClick, icon: Icon, label, emoji, disabled, tooltip }: any) {
   return (
     <motion.button
-      whileTap={{ scale: 0.96 }}
-      onClick={onClick}
-      className="p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden"
+      whileTap={disabled ? undefined : { scale: 0.96 }}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`p-4 rounded-[20px] flex flex-col items-start gap-2.5 text-left relative overflow-hidden w-full ${
+        disabled ? "opacity-50 cursor-not-allowed" : ""
+      }`}
       style={{
-        border: active ? "2px solid #D45113" : "2px solid rgba(248,221,164,0.35)",
-        background: active
-          ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
-          : "#ffffff",
-        boxShadow: active ? "0 4px 16px rgba(212,81,19,0.12)" : "none",
+        border: active && !disabled ? "2px solid #D45113" : "2px solid rgba(248,221,164,0.35)",
+        background: disabled
+          ? "rgba(129,52,5,0.03)"
+          : active
+            ? "linear-gradient(135deg,rgba(212,81,19,0.06),rgba(129,52,5,0.03))"
+            : "#ffffff",
+        boxShadow: active && !disabled ? "0 4px 16px rgba(212,81,19,0.12)" : "none",
         transition: "all 0.2s",
       }}
+      title={tooltip}
     >
-      {active && (
+      {active && !disabled && (
         <span className="absolute top-2 right-2 text-[10px]">✅</span>
       )}
       <div
         className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
         style={{
-          background: active
+          background: active && !disabled
             ? "linear-gradient(135deg,#D45113,#813405)"
             : "rgba(248,221,164,0.3)",
         }}
@@ -834,9 +1084,14 @@ function PayOpt({ active, onClick, icon: Icon, label, emoji }: any) {
       </div>
       <span
         className="text-sm font-black leading-snug"
-        style={{ color: active ? "#813405" : "#b0a090" }}
+        style={{ color: active && !disabled ? "#813405" : "#b0a090" }}
       >
         {label}
+        {disabled && (
+          <span className="block text-[9px] font-semibold text-rose-500 mt-0.5">
+            Unsupported
+          </span>
+        )}
       </span>
     </motion.button>
   );

@@ -5,6 +5,7 @@ import { SearchProvider } from "@/context/SearchContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { OrderProvider } from "@/context/OrderContext";
 import { RestaurantProvider } from "@/context/RestaurantContext";
+import { NotificationProvider } from "@/context/NotificationContext";
 
 function NotFoundComponent() {
   return (
@@ -23,17 +24,19 @@ function NotFoundComponent() {
 const rootRoute = createRootRoute({
   component: () => (
     <AuthProvider>
-      <RestaurantProvider>
-        <CartProvider>
-          <LocationProvider>
-            <SearchProvider>
-              <OrderProvider>
-                <Outlet />
-              </OrderProvider>
-            </SearchProvider>
-          </LocationProvider>
-        </CartProvider>
-      </RestaurantProvider>
+      <NotificationProvider>
+        <RestaurantProvider>
+          <CartProvider>
+            <LocationProvider>
+              <SearchProvider>
+                <OrderProvider>
+                  <Outlet />
+                </OrderProvider>
+              </SearchProvider>
+            </LocationProvider>
+          </CartProvider>
+        </RestaurantProvider>
+      </NotificationProvider>
     </AuthProvider>
   ),
   notFoundComponent: NotFoundComponent,

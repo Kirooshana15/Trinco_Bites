@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,8 +8,10 @@ import {
   ClipboardList, Sparkles, Award, Utensils, MessageSquare,
   BellRing, ShieldCheck, HelpCircle, Wallet
 } from "lucide-react";
-import { restaurants, FoodItem } from "@/utils/data/mock";
+import { type FoodItem } from "@/utils/data/mock";
 import { useAuth } from "@/context/AuthContext";
+import { useRestaurants } from "@/context/RestaurantContext";
+import { apiRequest } from "@/utils/api";
 
 // Helper for timeframe-based stats mapping
 const getShortName = (name: string) => {
@@ -30,90 +32,58 @@ const getShortName = (name: string) => {
 };
 
 export function RestaurantDashboard() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const { restaurants } = useRestaurants();
   const [timeframe, setTimeframe] = useState<"today" | "7days" | "30days">("7days");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number, y: number, value: number, day: string } | null>(null);
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Custom mock interactive metrics matching the culinary theme
-  const getMetrics = () => {
-    switch (timeframe) {
-      case "today":
-        return {
-          totalOrders: "84",
-          todayRevenue: "LKR 48,250",
-          pendingOrders: "8",
-          completedOrders: "74",
-          cancelledOrders: "2",
-          avgRating: "4.8",
-          activeCustomers: "52",
-          monthlyEarnings: "LKR 48,250",
-          ordersTrend: "+4.2%",
-          revenueTrend: "+8.4%",
-          pendingTrend: "-12.5%",
-          completedTrend: "+5.1%",
-          cancelledTrend: "-50.0%",
-          ratingTrend: "+0.1",
-          customersTrend: "+8.2%",
-          earningsTrend: "+8.4%",
-        };
-      case "30days":
-        return {
-          totalOrders: "5,420",
-          todayRevenue: "LKR 1,385,000",
-          pendingOrders: "8",
-          completedOrders: "5,230",
-          cancelledOrders: "58",
-          avgRating: "4.8",
-          activeCustomers: "1,240",
-          monthlyEarnings: "LKR 1,420,800",
-          ordersTrend: "+18.7%",
-          revenueTrend: "+24.2%",
-          pendingTrend: "-4.8%",
-          completedTrend: "+19.1%",
-          cancelledTrend: "-14.2%",
-          ratingTrend: "+0.3",
-          customersTrend: "+21.4%",
-          earningsTrend: "+22.4%",
-        };
-      case "7days":
-      default:
-        return {
-          totalOrders: "1,248",
-          todayRevenue: "LKR 312,400",
-          pendingOrders: "8",
-          completedOrders: "1,180",
-          cancelledOrders: "12",
-          avgRating: "4.8",
-          activeCustomers: "342",
-          monthlyEarnings: "LKR 384,200",
-          ordersTrend: "+12.0%",
-          revenueTrend: "+14.6%",
-          pendingTrend: "-20.0%",
-          completedTrend: "+14.2%",
-          cancelledTrend: "-25.0%",
-          ratingTrend: "+0.2",
-          customersTrend: "+18.7%",
-          earningsTrend: "+16.8%",
-        };
+  const fetchDashboardData = useCallback(async (silent = false) => {
+    if (!token) return;
+    if (!silent) setIsLoading(true);
+    try {
+      const data = await apiRequest<any>(`/restaurant/dashboard-stats?timeframe=${timeframe}`, { token });
+      setDashboardData(data);
+    } catch (err) {
+      console.error("Failed to fetch dashboard statistics", err);
+    } finally {
+      setIsLoading(false);
     }
+  }, [timeframe, token]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchDashboardData(true);
+    setIsRefreshing(false);
   };
 
-  const stats = getMetrics();
-
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 800);
+  const stats = dashboardData?.metrics || {
+    totalOrders: "0",
+    todayRevenue: "LKR 0",
+    pendingOrders: "0",
+    completedOrders: "0",
+    cancelledOrders: "0",
+    avgRating: "5.0",
+    activeCustomers: "0",
+    monthlyEarnings: "LKR 0",
+    ordersTrend: "0.0%",
+    revenueTrend: "0.0%",
+    pendingTrend: "0.0%",
+    completedTrend: "0.0%",
+    cancelledTrend: "0.0%",
+    ratingTrend: "0.0",
+    customersTrend: "0.0%",
+    earningsTrend: "0.0%"
   };
 
   // Get active menu items from mock database
-  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
-  const popularDishes = activeRestaurant.menu.slice(0, 3);
-
-  // Custom mock sales count for list
-  const salesCounts = [248, 194, 156];
+  const popularDishes = dashboardData?.popularDishes || [];
 
   // Custom SVG Sparkline coordinates for KPI trend visualizer
   const sparklines = {
@@ -133,46 +103,21 @@ export function RestaurantDashboard() {
   }, [timeframe]);
 
   // Dynamic Chart Dataset selection based on timeframe
-  const getChartRawData = () => {
-    switch (timeframe) {
-      case "today":
-        return [
-          { day: "08:00", val: 4200 },
-          { day: "11:00", val: 7800 },
-          { day: "14:00", val: 12500 },
-          { day: "17:00", val: 5800 },
-          { day: "20:00", val: 15400 },
-          { day: "23:00", val: 2550 },
-        ];
-      case "30days":
-        return [
-          { day: "Day 5", val: 185000 },
-          { day: "Day 10", val: 220000 },
-          { day: "Day 15", val: 195000 },
-          { day: "Day 20", val: 240000 },
-          { day: "Day 25", val: 260000 },
-          { day: "Day 30", val: 285000 },
-        ];
-      case "7days":
-      default:
-        return [
-          { day: "Mon", val: 38400 },
-          { day: "Tue", val: 42500 },
-          { day: "Wed", val: 35000 },
-          { day: "Thu", val: 48250 },
-          { day: "Fri", val: 54000 },
-          { day: "Sat", val: 62800 },
-          { day: "Sun", val: 58100 },
-        ];
-    }
-  };
+  const rawData: Array<{ day: string; val: number }> = dashboardData?.chartData || [
+    { day: "Mon", val: 0 },
+    { day: "Tue", val: 0 },
+    { day: "Wed", val: 0 },
+    { day: "Thu", val: 0 },
+    { day: "Fri", val: 0 },
+    { day: "Sat", val: 0 },
+    { day: "Sun", val: 0 }
+  ];
 
-  const rawData = getChartRawData();
   const maxVal = Math.max(1, ...rawData.map(d => d.val));
   const minY = 50;
   const maxY = 160;
 
-  const chartPoints = rawData.map((pt, i) => {
+  const chartPoints = rawData.map((pt: { day: string; val: number }, i) => {
     const x = 40 + i * (420 / (rawData.length - 1));
     const y = maxY - ((pt.val / maxVal) * (maxY - minY));
     return {
@@ -201,16 +146,38 @@ export function RestaurantDashboard() {
   const curvePath = getCurvePath(chartPoints);
   const fillPath = curvePath ? `${curvePath} L 460 170 L 40 170 Z` : "";
 
+  const completedPercent = dashboardData?.distribution?.completed ?? 80;
+  const pendingPercent = dashboardData?.distribution?.pending ?? 12;
+  const cancelledPercent = dashboardData?.distribution?.cancelled ?? 8;
+
+  const completedDash = (completedPercent / 100) * 238.76;
+  const pendingDash = (pendingPercent / 100) * 238.76;
+  const cancelledDash = (cancelledPercent / 100) * 238.76;
+
+  const pendingOffset = -completedDash;
+  const cancelledOffset = -(completedDash + pendingDash);
+
+  if (isLoading && !dashboardData) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="animate-spin text-[#71A066]" size={36} />
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Loading live analytics...</p>
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="flex flex-col gap-6"
+      className="flex flex-col gap-6 w-full min-w-0"
     >
       {/* 1. Header & Page Control Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">
             Dashboard
@@ -221,7 +188,7 @@ export function RestaurantDashboard() {
         </div>
 
         {/* Filters & Actions bar */}
-        <div className="flex items-center flex-wrap gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           {/* Timeframe Selector Pill */}
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border border-slate-200/60 dark:border-slate-800/80 p-1 rounded-xl flex items-center shadow-sm">
             {(["today", "7days", "30days"] as const).map((t) => (
@@ -478,13 +445,13 @@ export function RestaurantDashboard() {
       </div>
 
       {/* 3. Main Split Visual Section - Interactive Chart & Orders on left, Widgets on right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full min-w-0">
 
         {/* Left Side: Revenue Chart & Table (8 / 12 width) */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div className="lg:col-span-8 flex flex-col gap-6 w-full min-w-0">
 
           {/* Revenue Analytics Curve Chart */}
-          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-5 relative">
+          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-5 relative overflow-hidden">
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Financial Health</span>
@@ -553,7 +520,7 @@ export function RestaurantDashboard() {
                 />
 
                 {/* Days labels */}
-                {chartPoints.map((pt, idx) => (
+                {chartPoints.map((pt: { x: number; y: number; val: number; day: string }, idx: number) => (
                   <text
                     key={idx}
                     x={pt.x}
@@ -567,7 +534,7 @@ export function RestaurantDashboard() {
                 ))}
 
                 {/* Interactive Dot Nodes */}
-                {chartPoints.map((pt, idx) => (
+                {chartPoints.map((pt: { x: number; y: number; val: number; day: string }, idx: number) => (
                   <circle
                     key={idx}
                     cx={pt.x}
@@ -587,7 +554,7 @@ export function RestaurantDashboard() {
         </div>
 
         {/* Right Column: shortcuts & Quick Operations (4 / 12 width) */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
+        <div className="lg:col-span-4 flex flex-col gap-6 w-full min-w-0">
           {/* Quick Actions Panel */}
           <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">shortcuts</span>
@@ -627,15 +594,17 @@ export function RestaurantDashboard() {
       </div>
 
       {/* Row 2: Full-Width Insights & Distribution Sub-grid (spans 12 columns total!) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full min-w-0">
         {/* Today's Summary Widget */}
-        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
+        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4 overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">insights</span>
-            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 rounded-full border border-blue-100 dark:border-blue-900/20">Today's Summary</span>
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 rounded-full border border-blue-100 dark:border-blue-900/20 capitalize">
+              {timeframe === "today" ? "Today's" : timeframe === "30days" ? "30 Days" : "7 Days"} Summary
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4 flex-1">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 flex-1">
             {/* Peak Hour */}
             <div className="p-4 bg-gradient-to-br from-amber-500/5 to-amber-500/10 border border-amber-500/10 dark:border-amber-500/20 rounded-2xl flex flex-col justify-between group hover:scale-[1.02] transition-all duration-200">
               <div className="flex items-center justify-between">
@@ -645,7 +614,9 @@ export function RestaurantDashboard() {
                 </div>
               </div>
               <div className="mt-4">
-                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">7:00 PM</span>
+                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">
+                  {dashboardData?.insights?.peakHour || "7:00 PM"}
+                </span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-1.5 uppercase tracking-wider block">Busy Shift</span>
               </div>
             </div>
@@ -659,7 +630,9 @@ export function RestaurantDashboard() {
                 </div>
               </div>
               <div className="mt-4">
-                <span className="text-[12px] font-black text-slate-800 dark:text-white leading-none block truncate" title="Chicken Kottu">Chicken Kottu</span>
+                <span className="text-[12px] font-black text-slate-800 dark:text-white leading-none block truncate" title={dashboardData?.insights?.bestSeller || "Chicken Kottu"}>
+                  {dashboardData?.insights?.bestSeller || "Chicken Kottu"}
+                </span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-1.5 uppercase tracking-wider block">Top Item</span>
               </div>
             </div>
@@ -673,7 +646,9 @@ export function RestaurantDashboard() {
                 </div>
               </div>
               <div className="mt-4">
-                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">2</span>
+                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">
+                  {dashboardData?.insights?.refunds ?? 0}
+                </span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-1.5 uppercase tracking-wider block">Claims</span>
               </div>
             </div>
@@ -687,7 +662,9 @@ export function RestaurantDashboard() {
                 </div>
               </div>
               <div className="mt-4">
-                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">+18</span>
+                <span className="text-base font-extrabold text-slate-800 dark:text-white leading-none block">
+                  +{dashboardData?.insights?.newCustomers ?? 0}
+                </span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 mt-1.5 uppercase tracking-wider block">Acquired</span>
               </div>
             </div>
@@ -695,7 +672,7 @@ export function RestaurantDashboard() {
         </div>
 
         {/* Order Status Donut Chart Widget */}
-        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
+        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4 overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">distribution</span>
             <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-100 dark:border-emerald-900/20">Order Status</span>
@@ -715,7 +692,7 @@ export function RestaurantDashboard() {
                   className="text-slate-200/50 dark:text-slate-800/40"
                   strokeWidth="10"
                 />
-                {/* Completed Segment (80%) */}
+                {/* Completed Segment */}
                 <circle
                   cx="50"
                   cy="50"
@@ -723,12 +700,12 @@ export function RestaurantDashboard() {
                   fill="transparent"
                   stroke="#71A066"
                   strokeWidth="10"
-                  strokeDasharray="191.01 238.76"
+                  strokeDasharray={`${completedDash} 238.76`}
                   strokeDashoffset="0"
                   strokeLinecap="round"
                   className="transition-all duration-1000 ease-out cursor-pointer hover:stroke-[11px]"
                 />
-                {/* Pending Segment (12%) */}
+                {/* Pending Segment */}
                 <circle
                   cx="50"
                   cy="50"
@@ -736,12 +713,12 @@ export function RestaurantDashboard() {
                   fill="transparent"
                   stroke="#F59E0B"
                   strokeWidth="10"
-                  strokeDasharray="28.65 238.76"
-                  strokeDashoffset="-191.01"
+                  strokeDasharray={`${pendingDash} 238.76`}
+                  strokeDashoffset={pendingOffset}
                   strokeLinecap="round"
                   className="transition-all duration-1000 ease-out cursor-pointer hover:stroke-[11px]"
                 />
-                {/* Cancelled Segment (8%) */}
+                {/* Cancelled Segment */}
                 <circle
                   cx="50"
                   cy="50"
@@ -749,15 +726,15 @@ export function RestaurantDashboard() {
                   fill="transparent"
                   stroke="#EF4444"
                   strokeWidth="10"
-                  strokeDasharray="19.10 238.76"
-                  strokeDashoffset="-219.66"
+                  strokeDasharray={`${cancelledDash} 238.76`}
+                  strokeDashoffset={cancelledOffset}
                   strokeLinecap="round"
                   className="transition-all duration-1000 ease-out cursor-pointer hover:stroke-[11px]"
                 />
               </svg>
               {/* Center text inside donut hole */}
               <div className="absolute flex flex-col items-center justify-center text-center">
-                <span className="text-xl font-black text-slate-800 dark:text-white leading-none">80%</span>
+                <span className="text-xl font-black text-slate-800 dark:text-white leading-none">{completedPercent}%</span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Success</span>
               </div>
             </div>
@@ -770,7 +747,7 @@ export function RestaurantDashboard() {
                   <span className="h-2 w-2 rounded-full bg-[#71A066]" />
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Completed Orders</span>
                 </div>
-                <span className="text-xs font-extrabold text-slate-800 dark:text-white">80%</span>
+                <span className="text-xs font-extrabold text-slate-800 dark:text-white">{completedPercent}%</span>
               </div>
 
               {/* Pending */}
@@ -779,7 +756,7 @@ export function RestaurantDashboard() {
                   <span className="h-2 w-2 rounded-full bg-[#F59E0B]" />
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Pending Operations</span>
                 </div>
-                <span className="text-xs font-extrabold text-slate-800 dark:text-white">12%</span>
+                <span className="text-xs font-extrabold text-slate-800 dark:text-white">{pendingPercent}%</span>
               </div>
 
               {/* Cancelled */}
@@ -788,7 +765,7 @@ export function RestaurantDashboard() {
                   <span className="h-2 w-2 rounded-full bg-[#EF4444]" />
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Cancelled/Declined</span>
                 </div>
-                <span className="text-xs font-extrabold text-slate-800 dark:text-white">8%</span>
+                <span className="text-xs font-extrabold text-slate-800 dark:text-white">{cancelledPercent}%</span>
               </div>
             </div>
           </div>
@@ -796,11 +773,11 @@ export function RestaurantDashboard() {
       </div>
 
       {/* Row 3: Parallel Grid for Operations & Performance Feed (Recent Orders & Top Selling Dishes side-by-side) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full min-w-0">
         {/* Left Side: Recent Orders (8 / 12 width) */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div className="lg:col-span-8 flex flex-col gap-6 w-full min-w-0">
           {/* Recent Orders Preview Panel */}
-          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
+          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4 overflow-hidden">
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Live Feed</span>
@@ -825,143 +802,54 @@ export function RestaurantDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                  {/* Order 1 */}
-                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
-                    <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8942</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">NR</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Nithya R.">Nithya R.</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start max-w-full">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Chicken Biryani">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Chicken Biryani</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Lime Mojito">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Lime Mojito</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,500</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">10 mins ago</td>
-                    <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm whitespace-nowrap">
-                        Completed
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Order 2 */}
-                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
-                    <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8941</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-6 w-6 rounded-full bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">DJ</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Daniel J.">Daniel J.</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start max-w-full">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="2x Chicken Kottu">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">2x</span>
-                          <span className="truncate max-w-[140px]">Chicken Kottu</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,700</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">25 mins ago</td>
-                    <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-900/20 shadow-sm whitespace-nowrap">
-                        Preparing
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Order 3 */}
-                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
-                    <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8940</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-6 w-6 rounded-full bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">AS</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Archana S.">Archana S.</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start max-w-full">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Seafood Fried Rice">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Seafood Fried Rice</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,200</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">45 mins ago</td>
-                    <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 px-2.5 py-1 rounded-full border border-amber-100 dark:border-amber-900/20 shadow-sm whitespace-nowrap">
-                        Pending
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Order 4 */}
-                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
-                    <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8939</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">RK</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Ramesh K.">Ramesh K.</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start max-w-full">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-350 border border-slate-200/40 dark:border-slate-700/30" title="1x Veg Fried Rice">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Veg Fried Rice</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-355 border border-slate-200/40 dark:border-slate-700/30" title="1x Apple Mojito">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Apple Mojito</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,180</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">1 hr ago</td>
-                    <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/20 shadow-sm whitespace-nowrap">
-                        Completed
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Order 5 */}
-                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
-                    <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#TB-8938</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-6 w-6 rounded-full bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">SM</div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title="Shamil M.">Shamil M.</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start max-w-full">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title="1x Double Cheeseburger">
-                          <span className="text-[#71A066] dark:text-emerald-450 font-black">1x</span>
-                          <span className="truncate max-w-[140px]">Double Cheeseburger</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">LKR 1,250</td>
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">2 hrs ago</td>
-                    <td className="py-3.5 pl-4 text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 px-2.5 py-1 rounded-full border border-rose-100 dark:border-rose-900/20 shadow-sm whitespace-nowrap">
-                        Cancelled
-                      </span>
-                    </td>
-                  </tr>
+                  {dashboardData?.recentOrders && dashboardData.recentOrders.length > 0 ? (
+                    dashboardData.recentOrders.map((order: any) => (
+                      <tr key={order.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition duration-150">
+                        <td className="py-3.5 pr-4 font-bold text-[#71A066] dark:text-emerald-400">#{order.id}</td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="h-6 w-6 rounded-full bg-[#71A066]/10 text-[#71A066] dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold shadow-sm shrink-0">
+                              {order.customer.initials}
+                            </div>
+                            <span className="text-slate-800 dark:text-slate-200 font-semibold truncate" title={order.customer.name}>
+                              {order.customer.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex flex-col gap-1 items-start max-w-full">
+                            {order.items.map((item: any, idx: number) => (
+                              <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/40 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/40 dark:border-slate-700/30" title={`${item.quantity}x ${item.name}`}>
+                                <span className="text-[#71A066] dark:text-emerald-450 font-black">{item.quantity}x</span>
+                                <span className="truncate max-w-[140px]">{item.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">{order.amount}</td>
+                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-500 font-normal whitespace-nowrap">{order.time}</td>
+                        <td className="py-3.5 pl-4 text-right">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm whitespace-nowrap ${
+                            order.status === 'Completed'
+                              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/20'
+                              : order.status === 'Preparing'
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 border-blue-100 dark:border-blue-900/20'
+                              : order.status === 'Cancelled'
+                              ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 border-rose-100 dark:border-rose-900/20'
+                              : 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 border-amber-100 dark:border-amber-900/20'
+                          }`}>
+                            {order.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400 dark:text-slate-500">
+                        No orders recorded in this period.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -969,36 +857,36 @@ export function RestaurantDashboard() {
         </div>
 
         {/* Right Side: Popular Foods / Top Selling (4 / 12 width) - perfectly parallel to Recent Orders */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
+        <div className="lg:col-span-4 flex flex-col gap-6 w-full min-w-0">
           {/* Popular Dishes Widget */}
-          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4">
+          <div className="bg-white dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col gap-4 overflow-hidden">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest">Top Selling</span>
               <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-100 dark:border-emerald-900/20">Popular Dishes</span>
             </div>
 
             <div className="flex flex-col gap-3.5">
-              {popularDishes.map((dish, idx) => (
+              {popularDishes.map((dish: any) => (
                 <div key={dish.id} className="flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800/50 hover:border-[#71A066]/30 dark:hover:border-emerald-500/30 transition-all duration-200 group">
                   <div className="flex items-center gap-3">
                     <img
-                      src={dish.image}
+                      src={dish.image || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=120"}
                       alt={dish.name}
                       className="h-11 w-11 object-cover rounded-lg shadow-sm shrink-0 border border-slate-200/60 dark:border-slate-800 group-hover:scale-105 transition duration-200"
                     />
                     <div className="flex flex-col min-w-0">
                       <span className="font-bold text-[12px] text-slate-800 dark:text-slate-100 truncate max-w-[130px]">{dish.name}</span>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] font-bold text-[#71A066] dark:text-emerald-400">LKR {dish.price}</span>
+                        <span className="text-[10px] font-bold text-[#71A066] dark:text-emerald-400 font-bold">LKR {dish.price}</span>
                         <div className="flex items-center gap-0.5 text-[10px] text-amber-500 font-bold">
-                          <Star size={9} fill="currentColor" strokeWidth={0} /> {dish.rating}
+                          <Star size={9} fill="currentColor" strokeWidth={0} /> {dish.rating || 4.8}
                         </div>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex flex-col items-end text-right">
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{salesCounts[idx]} sold</span>
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{dish.salesCount || 0} sold</span>
                     <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 px-1.5 py-0.5 rounded-full border border-emerald-100 dark:border-emerald-900/30 mt-1">In Stock</span>
                   </div>
                 </div>

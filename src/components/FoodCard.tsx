@@ -19,7 +19,7 @@ export function FoodCard({
   const { add, setQty, items } = useCart();
   const [isLiked, setIsLiked] = useState(false);
 
-  const cartItem = items.find((i) => i.id === item.id);
+  const cartItem = items.find((i) => i.id === item.id && i.restaurantId === restaurantId);
   const quantity = cartItem?.quantity || 0;
 
   // ── Refs ──────────────────────────────────────────────────────────────────

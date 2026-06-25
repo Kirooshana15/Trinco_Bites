@@ -167,3 +167,61 @@
     background: rgba(255, 255, 255, 0.35);
   }
 }
+
+/* Custom responsive logic for restaurant profile weekly hours grid */
+.weekly-hours-row {
+  display: grid !important;
+  grid-template-columns: 90px 110px 1fr !important;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* When sidebar is expanded (large) on tablet, hide opening/closed text and shrink col 2 */
+  .sidebar-expanded .weekly-hours-row {
+    grid-template-columns: 90px 36px 1fr !important;
+  }
+  .sidebar-expanded .weekly-hours-status-text {
+    display: none !important;
+  }
+}
+
+/* Custom styled scrollbar for tabs navigation */
+.tabs-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 160, 102, 0.45) rgba(113, 160, 102, 0.08);
+}
+
+.tabs-scrollbar::-webkit-scrollbar {
+  height: 5px !important;
+  display: block !important;
+}
+
+.tabs-scrollbar::-webkit-scrollbar-track {
+  background: rgba(113, 160, 102, 0.08);
+  border-radius: 10px;
+}
+
+.tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(113, 160, 102, 0.45);
+  border-radius: 10px;
+  transition: background-color 0.2s;
+}
+
+.tabs-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 160, 102, 0.7);
+}
+
+.dark .tabs-scrollbar {
+  scrollbar-color: rgba(249, 160, 63, 0.5) rgba(249, 160, 63, 0.08);
+}
+
+.dark .tabs-scrollbar::-webkit-scrollbar-track {
+  background: rgba(249, 160, 63, 0.08);
+}
+
+.dark .tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(249, 160, 63, 0.5);
+}
+
+.dark .tabs-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 160, 63, 0.75);
+}

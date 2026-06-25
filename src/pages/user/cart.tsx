@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
@@ -9,13 +10,53 @@ import { isRestaurantOpen } from "@/utils/time";
 import { getCartItemPrices, formatPrice } from "@/utils/pricing";
 
 export function Cart() {
-  const { findRestaurant } = useRestaurants();
+  const { findRestaurant, offers } = useRestaurants();
   const { items, total, setQty, remove } = useCart();
   const closedRestaurantItems = items.filter((item) => {
     const restaurant = findRestaurant(item.restaurantId);
     return restaurant ? !isRestaurantOpen(restaurant) : false;
   });
   const hasClosedRestaurantItems = closedRestaurantItems.length > 0;
+
+  const hasFreeDeliveryOffer = useMemo(() => {
+    // Check if any cart item has applied offer of type FREE_DELIVERY
+    const cartHasFreeDelivery = items.some(it => it.appliedOffer?.type === 'FREE_DELIVERY');
+    if (cartHasFreeDelivery) return true;
+
+    // Check if there is an active offer of type FREE_DELIVERY for the restaurant of the cart items
+    if (items.length === 0) return false;
+    const restaurantId = items[0].restaurantId;
+    const activeOffers = offers.filter(o => o.restaurantId === restaurantId);
+    const getAutomaticOfferStatus = (offer: any) => {
+      if (offer.status === "Draft") return "Draft";
+      const now = new Date();
+      const todayStr = now.getFullYear() + "-" + 
+        String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+        String(now.getDate()).padStart(2, "0");
+      if (todayStr > offer.endDate) return "Expired";
+      if (todayStr < offer.startDate) return "Scheduled";
+      const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      if (!offer.activeDays.includes(daysMap[now.getDay()])) return "Scheduled";
+      return "Active";
+    };
+    return activeOffers.some(o => o.type === 'FREE_DELIVERY' && getAutomaticOfferStatus(o) === 'Active');
+  }, [items, offers]);
+
+  const restaurant = useMemo(() => {
+    return items.length > 0 ? findRestaurant(items[0].restaurantId) : undefined;
+  }, [items, findRestaurant]);
+
+  const deliveryFeeVal = useMemo(() => {
+    if (restaurant && restaurant.deliveryAvailable === false) return 0;
+    if (hasFreeDeliveryOffer) return 0;
+    if (restaurant && restaurant.freeDeliveryThreshold && restaurant.freeDeliveryThreshold > 0 && total >= restaurant.freeDeliveryThreshold) {
+      return 0;
+    }
+    if (restaurant && restaurant.deliveryFee !== undefined && restaurant.deliveryFee !== null) {
+      return restaurant.deliveryFee;
+    }
+    return 250; // fallback default delivery fee
+  }, [restaurant, hasFreeDeliveryOffer, total]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-soft">
@@ -40,7 +81,7 @@ export function Cart() {
                     const prices = getCartItemPrices(it);
                     return (
                       <motion.div
-                        key={it.id}
+                        key={it.dbId || it.id}
                         layout
                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, x: -50 }}
@@ -55,9 +96,19 @@ export function Cart() {
                                 {it.selectedSize}
                               </span>
                             )}
+                            {it.appliedOffer && (
+                              <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 flex items-center gap-0.5">
+                                🏷️ {it.appliedOffer.discountBadge} Applied
+                              </span>
+                            )}
                           </h3>
+                          {it.restaurantName && (
+                            <span className="text-[10px] font-black text-slate-400 block mt-1 uppercase tracking-wider">
+                              🏪 {it.restaurantName}
+                            </span>
+                          )}
 
-                          {it.appliedOffer?.id === "O-205" && (
+                          {(it.appliedOffer?.type === "BUY_ONE_GET_ONE" || it.appliedOffer?.id === "O-205") && (
                             <div className="mt-2 p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100 flex items-center justify-between text-xs text-emerald-800">
                               <span className="font-bold flex items-center gap-1">
                                 🎁 {it.quantity}x {it.name} ({it.selectedSize || "Regular"})
@@ -71,7 +122,14 @@ export function Cart() {
                           <div className="mt-2 text-xs space-y-1 text-slate-500 border-l-2 border-orange-200 pl-2">
                             <div className="flex justify-between">
                               <span>Base Price ({it.quantity}x {formatPrice(prices.basePrice)})</span>
-                              <span className="font-semibold">{formatPrice(prices.totalBasePrice)}</span>
+                              {it.appliedOffer && prices.basePrice < (it.selectedSize === "Large" ? it.price * 1.5 : it.price) ? (
+                                <span className="font-semibold flex items-center gap-1.5">
+                                  <span className="text-slate-400 line-through font-normal">{formatPrice((it.selectedSize === "Large" ? it.price * 1.5 : it.price) * it.quantity)}</span>
+                                  <span>{formatPrice(prices.totalBasePrice)}</span>
+                                </span>
+                              ) : (
+                                <span className="font-semibold">{formatPrice(prices.totalBasePrice)}</span>
+                              )}
                             </div>
 
                             {it.selectedExtras && it.selectedExtras.length > 0 && (
@@ -105,11 +163,11 @@ export function Cart() {
                         </div>
 
                         <div className="flex flex-col items-end gap-2.5 shrink-0 self-stretch justify-between">
-                          <button onClick={() => remove(it.id)} className="text-muted-foreground hover:text-destructive p-1"><Trash2 className="h-4 w-4" /></button>
+                          <button onClick={() => remove(it.dbId || it.id)} className="text-muted-foreground hover:text-destructive p-1"><Trash2 className="h-4 w-4" /></button>
                           <div className="flex items-center gap-2 bg-muted rounded-full p-1">
-                            <button onClick={() => setQty(it.id, it.quantity - 1)} className="h-7 w-7 rounded-full bg-card grid place-items-center"><Minus className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => setQty(it.dbId || it.id, it.quantity - 1)} className="h-7 w-7 rounded-full bg-card grid place-items-center"><Minus className="h-3.5 w-3.5" /></button>
                             <span className="w-6 text-center text-sm font-semibold">{it.quantity}</span>
-                            <button onClick={() => setQty(it.id, it.quantity + 1)} className="h-7 w-7 rounded-full bg-primary text-primary-foreground grid place-items-center"><Plus className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => setQty(it.dbId || it.id, it.quantity + 1)} className="h-7 w-7 rounded-full bg-primary text-primary-foreground grid place-items-center"><Plus className="h-3.5 w-3.5" /></button>
                           </div>
                         </div>
                       </motion.div>
@@ -124,10 +182,15 @@ export function Cart() {
                     Some items are from a restaurant that is currently closed. Remove them before checkout.
                   </div>
                 )}
+                {restaurant && restaurant.deliveryAvailable === false && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                    ⚠️ This restaurant does not offer Home Delivery. This order will be placed as Self Pickup.
+                  </div>
+                )}
                 <Row label="Subtotal" value={total} />
-                <Row label="Delivery" value={250} />
+                <Row label={restaurant && restaurant.deliveryAvailable === false ? "Delivery (Self Pickup Only)" : "Delivery"} value={deliveryFeeVal} />
                 <div className="border-t border-border pt-3">
-                  <Row label="Total" value={total + 250} bold />
+                  <Row label="Total" value={total + deliveryFeeVal} bold />
                 </div>
                 {hasClosedRestaurantItems ? (
                   <div className="block text-center w-full bg-slate-300 text-slate-500 font-semibold py-3.5 rounded-xl shadow-card cursor-not-allowed">

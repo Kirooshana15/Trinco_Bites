@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { apiRequest } from "../utils/api";
 
 export type UserRole = "user" | "restaurant_admin" | "main_admin";
 
@@ -42,46 +43,201 @@ export function normalizePhone(phone: string): string {
   return digits;
 }
 
+export function isRestaurantAdminPath(path: string): boolean {
+  const adminPaths = [
+    "/restaurant/dashboard",
+    "/restaurant/orders",
+    "/restaurant/menu",
+    "/restaurant/categories",
+    "/restaurant/profile",
+    "/restaurant/customers",
+    "/restaurant/reviews",
+    "/restaurant/offers",
+    "/restaurant/analytics",
+    "/restaurant/notifications",
+    "/restaurant/payments"
+  ];
+  return adminPaths.some((p) => path.startsWith(p));
+}
+
 type AuthContextType = {
   user: User | null;
   token: string | null;
   login: (payload: LoginPayload) => Promise<User>;
+  businessLogin: (payload: Omit<LoginPayload, "phone">) => Promise<User>;
   restaurantLogin: (payload: Omit<LoginPayload, "phone">) => Promise<User>;
   adminLogin: (payload: Omit<LoginPayload, "phone">) => Promise<User>;
   googleLogin: (credential: string) => Promise<User>;
   register: (payload: RegisterPayload) => Promise<RegisterResponse>;
   logout: () => Promise<void>;
+  updateUser: (updatedUser: Partial<User>) => void;
   isAuthenticated: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function isTokenExpired(token: string | null): boolean {
+  if (!token) return true;
+  if (token === "mock-token-google" || token.startsWith("mock-")) return false;
+
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
+    );
+
+    if (typeof payload.exp !== "number") {
+      return false;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    return now >= (payload.exp - 10); // 10s buffer
+  } catch (e) {
+    console.error("Error decoding token for expiry check", e);
+    return true;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [customerUser, setCustomerUser] = useState<User | null>(() => {
+    const token = localStorage.getItem("trinco_token");
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("trinco_user");
+      localStorage.removeItem("trinco_token");
+      return null;
+    }
     const savedUser = localStorage.getItem("trinco_user");
     return savedUser ? JSON.parse(savedUser) : null;
   });
   const [customerToken, setCustomerToken] = useState<string | null>(() => {
-    return localStorage.getItem("trinco_token");
+    const token = localStorage.getItem("trinco_token");
+    if (isTokenExpired(token)) {
+      return null;
+    }
+    return token;
   });
 
   const [restaurantUser, setRestaurantUser] = useState<User | null>(() => {
+    const token = localStorage.getItem("trinco_restaurant_token");
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("trinco_restaurant_user");
+      localStorage.removeItem("trinco_restaurant_token");
+      return null;
+    }
     const savedUser = localStorage.getItem("trinco_restaurant_user");
     return savedUser ? JSON.parse(savedUser) : null;
   });
   const [restaurantToken, setRestaurantToken] = useState<string | null>(() => {
-    return localStorage.getItem("trinco_restaurant_token");
+    const token = localStorage.getItem("trinco_restaurant_token");
+    if (isTokenExpired(token)) {
+      return null;
+    }
+    return token;
   });
 
   const [adminUser, setAdminUser] = useState<User | null>(() => {
+    const token = localStorage.getItem("trinco_admin_token");
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("trinco_admin_user");
+      localStorage.removeItem("trinco_admin_token");
+      return null;
+    }
     const savedUser = localStorage.getItem("trinco_admin_user");
     return savedUser ? JSON.parse(savedUser) : null;
   });
   const [adminToken, setAdminToken] = useState<string | null>(() => {
-    return localStorage.getItem("trinco_admin_token");
+    const token = localStorage.getItem("trinco_admin_token");
+    if (isTokenExpired(token)) {
+      return null;
+    }
+    return token;
   });
 
   const [pathname, setPathname] = useState(() => typeof window !== "undefined" ? window.location.pathname : "");
+
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_API_URL ?? "/api";
+        const res = await fetch(baseUrl);
+        // If the request completes, the backend is up
+      } catch (err) {
+        console.warn("Backend connection failed. Clearing localStorage cached states...", err);
+        // Reset state
+        setCustomerUser(null);
+        setCustomerToken(null);
+        setRestaurantUser(null);
+        setRestaurantToken(null);
+        setAdminUser(null);
+        setAdminToken(null);
+        
+        // Clear storage keys
+        const keysToRemove = [
+          "trinco_user",
+          "trinco_token",
+          "trinco_restaurant_user",
+          "trinco_restaurant_token",
+          "trinco_admin_user",
+          "trinco_admin_token",
+          "trinco_restaurants",
+          "trinco_orders"
+        ];
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+      }
+    };
+    checkBackend();
+  }, []);
+
+  useEffect(() => {
+    const checkExpiry = () => {
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      let activeToken: string | null = null;
+      let role: "restaurant" | "admin" | "customer" = "customer";
+
+      if (isRestaurantAdminPath(path)) {
+        activeToken = restaurantToken;
+        role = "restaurant";
+      } else if (path.startsWith("/admin")) {
+        activeToken = adminToken;
+        role = "admin";
+      } else {
+        activeToken = customerToken;
+      }
+
+      if (activeToken && isTokenExpired(activeToken)) {
+        if (role === "restaurant") {
+          setRestaurantUser(null);
+          setRestaurantToken(null);
+          localStorage.removeItem("trinco_restaurant_user");
+          localStorage.removeItem("trinco_restaurant_token");
+        } else if (role === "admin") {
+          setAdminUser(null);
+          setAdminToken(null);
+          localStorage.removeItem("trinco_admin_user");
+          localStorage.removeItem("trinco_admin_token");
+        } else {
+          setCustomerUser(null);
+          setCustomerToken(null);
+          localStorage.removeItem("trinco_user");
+          localStorage.removeItem("trinco_token");
+        }
+
+        alert("Your session has expired. Please log in again.");
+
+        if (role === "restaurant" || role === "admin") {
+          window.location.href = "/business_login";
+        } else {
+          window.location.href = "/login";
+        }
+      }
+    };
+
+    checkExpiry();
+    const interval = setInterval(checkExpiry, 10000);
+    return () => clearInterval(interval);
+  }, [customerToken, restaurantToken, adminToken, pathname]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -113,7 +269,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const getActiveSession = () => {
-    if (pathname.startsWith("/restaurant")) {
+    if (isRestaurantAdminPath(pathname)) {
       return { user: restaurantUser, token: restaurantToken };
     }
     if (pathname.startsWith("/admin")) {
@@ -123,6 +279,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const { user, token } = getActiveSession();
+
+  // Listen to global "unauthorized" event (dispatched on any 401 response)
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      let role: "restaurant" | "admin" | "customer" = "customer";
+
+      if (isRestaurantAdminPath(path)) {
+        role = "restaurant";
+      } else if (path.startsWith("/admin")) {
+        role = "admin";
+      }
+
+      if (role === "restaurant") {
+        setRestaurantUser(null);
+        setRestaurantToken(null);
+        localStorage.removeItem("trinco_restaurant_user");
+        localStorage.removeItem("trinco_restaurant_token");
+      } else if (role === "admin") {
+        setAdminUser(null);
+        setAdminToken(null);
+        localStorage.removeItem("trinco_admin_user");
+        localStorage.removeItem("trinco_admin_token");
+      } else {
+        setCustomerUser(null);
+        setCustomerToken(null);
+        localStorage.removeItem("trinco_user");
+        localStorage.removeItem("trinco_token");
+      }
+
+      alert("Your session has expired or is invalid. Please log in again.");
+
+      if (role === "restaurant" || role === "admin") {
+        window.location.href = "/business_login";
+      } else {
+        window.location.href = "/login";
+      }
+    };
+
+    window.addEventListener("unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("unauthorized", handleUnauthorized);
+  }, [customerToken, restaurantToken, adminToken]);
+
+  // On mount/init, verify the current token with backend
+  useEffect(() => {
+    const verifySession = async () => {
+      const activeSession = getActiveSession();
+      if (!activeSession.token) return;
+
+      try {
+        await apiRequest("/auth/me", { token: activeSession.token });
+      } catch (err) {
+        // If it fails with 401, the "unauthorized" event listener will automatically trigger logout.
+        console.error("Session verification failed", err);
+      }
+    };
+
+    verifySession();
+  }, []);
 
   const persistSession = (auth: AuthResponse) => {
     const role = auth.user.role;
@@ -146,137 +361,209 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (payload: LoginPayload) => {
-    // Check local storage registry first
-    const savedUsers = localStorage.getItem("trinco_mock_users");
-    const users = savedUsers ? JSON.parse(savedUsers) : [];
-    const foundUser = users.find((u: User & { password?: string }) => u.email === payload.email);
-
-    if (foundUser) {
-      if (foundUser.role !== "user") {
-        throw new Error("Invalid credentials for customer portal.");
-      }
-      if (foundUser.password && foundUser.password !== payload.password) {
-        throw new Error("Incorrect password.");
-      }
-      if (normalizePhone(foundUser.phone) !== normalizePhone(payload.phone)) {
-        throw new Error("Email and phone number do not match.");
-      }
-      return persistSession({ message: "Success", token: "mock-token-customer", user: foundUser });
-    }
-
-    // Default Customer fallback for ease of testing
-    if (payload.email === "user@gmail.com") {
-      const defaultPhone = "0771234567";
-      const userOverride = localStorage.getItem("trinco_user_password_override") || "user@123";
-      if (payload.password !== userOverride) {
-        throw new Error("Incorrect password.");
-      }
-      if (payload.phone && normalizePhone(payload.phone) !== normalizePhone(defaultPhone)) {
-        throw new Error("Email and phone number do not match.");
-      }
-      const defaultUser: User = {
-        name: "Test Customer",
-        email: payload.email,
-        phone: payload.phone || defaultPhone,
-        role: "user",
+    const response = await apiRequest<{
+      message: string;
+      token: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        phone: string;
+        role: string;
+        restaurantId?: string;
       };
-      return persistSession({ message: "Success", token: "mock-token-customer", user: defaultUser });
+    }>("/auth/login", {
+      method: "POST",
+      body: {
+        email: payload.email || undefined,
+        phone: payload.phone || undefined,
+        password: payload.password,
+      },
+    });
+
+    const mappedUser: User = {
+      name: response.user.fullName || "",
+      email: response.user.email,
+      phone: response.user.phone || "",
+      role: response.user.role === "ADMIN" 
+        ? "main_admin" 
+        : response.user.role === "RESTAURANT" 
+          ? "restaurant_admin" 
+          : "user",
+      restaurantId: response.user.restaurantId,
+    };
+
+    if (mappedUser.role !== "user") {
+      throw new Error("Invalid credentials for customer portal.");
     }
 
-    throw new Error("User not found. Please register first.");
+    return persistSession({
+      message: response.message,
+      token: response.token,
+      user: mappedUser,
+    });
+  };
+
+  const businessLogin = async (payload: Omit<LoginPayload, "phone">) => {
+    const response = await apiRequest<{
+      message: string;
+      token: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        phone: string;
+        role: string;
+        restaurantId?: string;
+      };
+    }>("/auth/login", {
+      method: "POST",
+      body: {
+        email: payload.email,
+        password: payload.password,
+      },
+    });
+
+    const mappedUser: User = {
+      name: response.user.fullName || "",
+      email: response.user.email,
+      phone: response.user.phone || "",
+      role: response.user.role === "ADMIN" 
+        ? "main_admin" 
+        : response.user.role === "RESTAURANT" 
+          ? "restaurant_admin" 
+          : "user",
+      restaurantId: response.user.restaurantId,
+    };
+
+    if (mappedUser.role !== "main_admin" && mappedUser.role !== "restaurant_admin") {
+      throw new Error("Invalid business credentials.");
+    }
+
+    return persistSession({
+      message: response.message,
+      token: response.token,
+      user: mappedUser,
+    });
   };
 
   const restaurantLogin = async (payload: Omit<LoginPayload, "phone">) => {
-    // Hardcoded credentials for Restaurant Admin
-    const restaurantOverride = localStorage.getItem("trinco_restaurant_password_override") || "restaurant@123";
-    
-    const accounts = [
-      {
-        email: "restaurant@gmail.com",
-        name: "Trinco Spice House",
-        restaurantId: "trinco-spice",
-        phone: "0777654321"
-      },
-      {
-        email: "spicehouse@gmail.com",
-        name: "Trinco Spice House",
-        restaurantId: "trinco-spice",
-        phone: "0777111222"
-      },
-      {
-        email: "oceanpearl@gmail.com",
-        name: "Ocean Pearl Seafood",
-        restaurantId: "ocean-pearl",
-        phone: "0777333444"
-      },
-      {
-        email: "biryanipalace@gmail.com",
-        name: "Biryani Palace",
-        restaurantId: "biryani-palace",
-        phone: "0777555666"
-      },
-      {
-        email: "burgerco@gmail.com",
-        name: "Trinco Burger Co.",
-        restaurantId: "burger-co",
-        phone: "0777777888"
-      }
-    ];
-
-    const match = accounts.find(acc => acc.email.toLowerCase() === payload.email.toLowerCase());
-
-    if (match && payload.password === restaurantOverride) {
-      const mockRestaurantAdmin: User = {
-        name: match.name,
-        email: match.email,
-        phone: match.phone,
-        role: "restaurant_admin",
-        restaurantId: match.restaurantId,
+    const response = await apiRequest<{
+      message: string;
+      token: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        phone: string;
+        role: string;
+        restaurantId?: string;
       };
-      return persistSession({ message: "Success", token: "mock-token-restaurant", user: mockRestaurantAdmin });
+    }>("/auth/login", {
+      method: "POST",
+      body: {
+        email: payload.email,
+        password: payload.password,
+      },
+    });
+
+    const mappedUser: User = {
+      name: response.user.fullName || "",
+      email: response.user.email,
+      phone: response.user.phone || "",
+      role: response.user.role === "ADMIN" 
+        ? "main_admin" 
+        : response.user.role === "RESTAURANT" 
+          ? "restaurant_admin" 
+          : "user",
+      restaurantId: response.user.restaurantId,
+    };
+
+    if (mappedUser.role !== "restaurant_admin") {
+      throw new Error("Invalid restaurant admin credentials.");
     }
-    throw new Error("Invalid restaurant admin credentials.");
+
+    return persistSession({
+      message: response.message,
+      token: response.token,
+      user: mappedUser,
+    });
   };
 
   const adminLogin = async (payload: Omit<LoginPayload, "phone">) => {
-    // Hardcoded credentials for Main Admin
-    const adminOverride = localStorage.getItem("trinco_admin_password_override") || "admin@123";
-    if (payload.email === "admin@gmail.com" && payload.password === adminOverride) {
-      const mockMainAdmin: User = {
-        name: "Main Admin",
-        email: payload.email,
-        phone: "0779876543",
-        role: "main_admin",
+    const response = await apiRequest<{
+      message: string;
+      token: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        phone: string;
+        role: string;
+        restaurantId?: string;
       };
-      return persistSession({ message: "Success", token: "mock-token-admin", user: mockMainAdmin });
+    }>("/auth/login", {
+      method: "POST",
+      body: {
+        email: payload.email,
+        password: payload.password,
+      },
+    });
+
+    const mappedUser: User = {
+      name: response.user.fullName || "",
+      email: response.user.email,
+      phone: response.user.phone || "",
+      role: response.user.role === "ADMIN" 
+        ? "main_admin" 
+        : response.user.role === "RESTAURANT" 
+          ? "restaurant_admin" 
+          : "user",
+      restaurantId: response.user.restaurantId,
+    };
+
+    if (mappedUser.role !== "main_admin") {
+      throw new Error("Invalid main admin credentials.");
     }
-    throw new Error("Invalid main admin credentials.");
+
+    return persistSession({
+      message: response.message,
+      token: response.token,
+      user: mappedUser,
+    });
   };
 
   const register = async (payload: RegisterPayload) => {
-    const mockUser: User & { password?: string } = {
-      name: payload.name,
-      email: payload.email,
-      phone: payload.phone,
+    const response = await apiRequest<{
+      message: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        phone: string;
+        role: string;
+      };
+    }>("/auth/signup", {
+      method: "POST",
+      body: {
+        fullName: payload.name,
+        email: payload.email,
+        phone: payload.phone,
+        password: payload.password,
+      },
+    });
+
+    const mappedUser: User = {
+      name: response.user.fullName || "",
+      email: response.user.email,
+      phone: response.user.phone || "",
       role: "user",
-      password: payload.password
     };
 
-    const savedUsers = localStorage.getItem("trinco_mock_users");
-    const users = savedUsers ? JSON.parse(savedUsers) : [];
-
-    if (users.some((u: User) => u.email === payload.email) || payload.email === "user@gmail.com") {
-      throw new Error("Email already registered.");
-    }
-
-    if (users.some((u: User) => normalizePhone(u.phone) === normalizePhone(payload.phone)) || normalizePhone(payload.phone) === normalizePhone("0771234567")) {
-      throw new Error("Phone number already registered.");
-    }
-
-    users.push(mockUser);
-    localStorage.setItem("trinco_mock_users", JSON.stringify(users));
-
-    return { message: "Registered", user: mockUser };
+    return {
+      message: response.message,
+      user: mappedUser,
+    };
   };
 
   const googleLogin = async (credential: string) => {
@@ -316,15 +603,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Error decoding Google credential", e);
     }
 
-    // Check if a user with this email is already registered in local mock database
-    const savedUsers = localStorage.getItem("trinco_mock_users");
-    const users = savedUsers ? JSON.parse(savedUsers) : [];
-    const foundUser = users.find((u: User) => u.email === email);
-    if (foundUser) {
-      name = foundUser.name;
-      phone = foundUser.phone;
-    }
-
     const mockUser: User = {
       name,
       email,
@@ -355,7 +633,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    const activeToken = token;
     clearSession();
+    if (activeToken) {
+      try {
+        await apiRequest("/auth/logout", {
+          method: "POST",
+          token: activeToken,
+        });
+      } catch (err) {
+        console.error("Error logging out from backend:", err);
+      }
+    }
+  };
+
+  const updateUser = (updatedFields: Partial<User>) => {
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
+    if (path.startsWith("/restaurant")) {
+      if (restaurantUser) {
+        const newUser = { ...restaurantUser, ...updatedFields };
+        setRestaurantUser(newUser);
+        localStorage.setItem("trinco_restaurant_user", JSON.stringify(newUser));
+      }
+    } else if (path.startsWith("/admin")) {
+      if (adminUser) {
+        const newUser = { ...adminUser, ...updatedFields };
+        setAdminUser(newUser);
+        localStorage.setItem("trinco_admin_user", JSON.stringify(newUser));
+      }
+    } else {
+      if (customerUser) {
+        const newUser = { ...customerUser, ...updatedFields };
+        setCustomerUser(newUser);
+        localStorage.setItem("trinco_user", JSON.stringify(newUser));
+      }
+    }
   };
 
   return (
@@ -364,11 +676,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         token,
         login,
+        businessLogin,
         restaurantLogin,
         adminLogin,
         googleLogin,
         register,
         logout,
+        updateUser,
         isAuthenticated: !!user && !!token
       }}
     >

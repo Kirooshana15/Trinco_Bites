@@ -1,8 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CartItem } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
+import { apiRequest } from "@/utils/api";
 
 export type OrderRecord = {
-  id: string;
+  id: string; // The friendly TRC-XXXX code returned by the backend
+  dbId: string; // The UUID database ID
   createdAt: string;
   status: "Order Received" | "Preparing" | "Out for Delivery" | "Delivered" | "Cancelled";
   restaurantId: string;
@@ -21,101 +24,121 @@ export type OrderRecord = {
   };
   deliveryAddress: string;
   locationLabel: string;
-  notes?: string; // Customer's special instructions
-  cancellationReason?: string; // Why restaurant rejected the order
-  refundInitiated?: boolean;   // true for card payments that were refunded
+  notes?: string;
+  cancellationReason?: string;
+  refundInitiated?: boolean;
 };
 
 type OrderContextType = {
   orders: OrderRecord[];
   latestOrder: OrderRecord | null;
-  placeOrder: (order: Omit<OrderRecord, "id" | "createdAt" | "status">) => OrderRecord;
-  updateOrderStatus: (orderId: string, status: OrderRecord["status"]) => void;
+  placeOrder: (order: Omit<OrderRecord, "id" | "dbId" | "createdAt" | "status">) => Promise<OrderRecord>;
+  updateOrderStatus: (orderId: string, status: OrderRecord["status"]) => Promise<void>;
+  fetchOrders: () => Promise<void>;
 };
-
-const STORAGE_KEY = "trinco_orders";
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 export function OrderProvider({ children }: { children: ReactNode }) {
+  const { token, isAuthenticated } = useAuth();
   const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [latestOrder, setLatestOrder] = useState<OrderRecord | null>(null);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setOrders(JSON.parse(saved));
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
+  const fetchOrders = async () => {
+    if (!token) return;
+    try {
+      const fetched = await apiRequest<OrderRecord[]>("/orders", { token });
+      setOrders(fetched);
+      if (fetched.length > 0) {
+        setLatestOrder(fetched[0]);
+      } else {
+        setLatestOrder(null);
       }
+    } catch (err) {
+      console.error("Failed to fetch orders from backend:", err);
+    }
+  };
+
+  const fetchLatestOrder = async () => {
+    if (!token || !latestOrder) return;
+    try {
+      // Fetch latest order from backend to poll its status
+      const updated = await apiRequest<OrderRecord>(`/orders/${latestOrder.id}`, { token });
+      setOrders((prev) => prev.map((o) => (o.id === latestOrder.id ? updated : o)));
+      setLatestOrder(updated);
+    } catch (err) {
+      console.error("Failed to fetch latest order status:", err);
+    }
+  };
+
+  // Load orders when authenticated
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      fetchOrders();
+    } else {
+      setOrders([]);
+      setLatestOrder(null);
+    }
+  }, [isAuthenticated, token]);
+
+  // Polling logic: if the latest order is active (not terminal), poll status every 8 seconds
+  useEffect(() => {
+    if (!isAuthenticated || !token || !latestOrder) return;
+
+    const isActive =
+      latestOrder.status !== "Delivered" && latestOrder.status !== "Cancelled";
+    if (!isActive) return;
+
+    const interval = setInterval(() => {
+      fetchLatestOrder();
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, token, latestOrder?.id, latestOrder?.status]);
+
+  const placeOrder: OrderContextType["placeOrder"] = async (orderData) => {
+    if (!token) {
+      throw new Error("User must be authenticated to place an order");
     }
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue) {
-        try {
-          setOrders(JSON.parse(e.newValue));
-        } catch {}
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+    try {
+      const response = await apiRequest<OrderRecord>("/orders", {
+        method: "POST",
+        token,
+        body: orderData,
+      });
 
-  const placeOrder: OrderContextType["placeOrder"] = (order) => {
-    const next: OrderRecord = {
-      ...order,
-      id: `TRC-${Math.floor(Math.random() * 9000 + 1000)}`,
-      createdAt: new Date().toISOString(),
-      status: "Order Received",
-    };
+      // Update state
+      setOrders((prev) => [response, ...prev]);
+      setLatestOrder(response);
 
-    setOrders((prev) => {
-      const updated = [next, ...prev];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-
-    return next;
+      return response;
+    } catch (err) {
+      console.error("Failed to place order on backend:", err);
+      throw err;
+    }
   };
 
-  const updateOrderStatus = (orderId: string, status: OrderRecord["status"]) => {
-    setOrders((prev) => {
-      const order = prev.find((o) => o.id === orderId);
-      if (!order) return prev;
+  const updateOrderStatus = async (orderId: string, status: OrderRecord["status"]) => {
+    if (!token) return;
+    try {
+      const updated = await apiRequest<OrderRecord>(`/orders/${orderId}/status`, {
+        method: "PATCH",
+        token,
+        body: { status },
+      });
 
-      // Strict transition validation
-      const current = order.status;
-      if (current === "Delivered" || current === "Cancelled") {
-        return prev; // Terminal states cannot transition
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? updated : o)));
+      if (latestOrder && (latestOrder.id === orderId || latestOrder.dbId === orderId)) {
+        setLatestOrder(updated);
       }
-
-      // Validating transitions:
-      // Order Received -> Preparing or Cancelled
-      // Preparing -> Delivered or Cancelled (restaurant Done = food ready, no separate delivery man)
-      // Out for Delivery -> Delivered or Cancelled (legacy path, kept for compatibility)
-      let valid = false;
-      if (current === "Order Received" && (status === "Preparing" || status === "Cancelled")) {
-        valid = true;
-      } else if (current === "Preparing" && (status === "Delivered" || status === "Out for Delivery" || status === "Cancelled")) {
-        valid = true;
-      } else if (current === "Out for Delivery" && (status === "Delivered" || status === "Cancelled")) {
-        valid = true;
-      } else if (status === "Cancelled") {
-        valid = true;
-      }
-
-      if (!valid) return prev; // Ignore invalid transitions
-
-      const updated = prev.map((o) => (o.id === orderId ? { ...o, status } : o));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
+    } catch (err) {
+      console.error("Failed to update order status on backend:", err);
+    }
   };
-
-  const latestOrder = useMemo(() => orders[0] ?? null, [orders]);
 
   return (
-    <OrderContext.Provider value={{ orders, latestOrder, placeOrder, updateOrderStatus }}>
+    <OrderContext.Provider value={{ orders, latestOrder, placeOrder, updateOrderStatus, fetchOrders }}>
       {children}
     </OrderContext.Provider>
   );

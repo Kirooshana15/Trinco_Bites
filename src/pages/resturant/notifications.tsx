@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Settings,
@@ -18,9 +19,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { useOrders } from "@/context/OrderContext";
-import { useRestaurants } from "@/context/RestaurantContext";
-import { buildRestaurantAlerts } from "@/utils/restaurantNotifications";
+import { useNotifications, NotificationPreference } from "@/context/NotificationContext";
+import { formatAlertTime } from "@/utils/restaurantNotifications";
 
 // ==========================================
 // 1. TYPE DEFINITIONS
@@ -33,12 +33,6 @@ interface NotificationItem {
   time: string;
   createdAt?: string;
   read: boolean;
-}
-
-interface NotificationPreference {
-  key: string;
-  label: string;
-  enabled: boolean;
 }
 
 // ==========================================
@@ -191,63 +185,40 @@ const TYPE_ICONS: Record<NotificationItem["type"], React.ReactNode> = {
 
 export function Notifications() {
   const { user } = useAuth();
-  const { orders } = useOrders();
-  const { offers, restaurants } = useRestaurants();
-  const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
+  const navigate = useNavigate();
 
-  // ==========================================
-  // 4. STATES
-  // ==========================================
-  const [notifications, setNotifications] = useState<NotificationItem[]>(
-    INITIAL_NOTIFICATIONS
-  );
+  const {
+    notifications: dbNotifications,
+    unreadCount,
+    preferences,
+    updatePreferences,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    clearReadNotifications,
+  } = useNotifications();
+
   const [activeTab, setActiveTab] = useState<
     "all" | "orders" | "customers" | "payments" | "offers" | "security"
   >("all");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [preferences, setPreferences] =
-    useState<NotificationPreference[]>(INITIAL_PREFERENCES);
   const [tempPreferences, setTempPreferences] =
-    useState<NotificationPreference[]>(INITIAL_PREFERENCES);
+    useState<NotificationPreference[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
-  const [dismissedAutoIds, setDismissedAutoIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("trinco_dismissed_auto_notifications");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const generatedNotifications = useMemo(
-    () =>
-      buildRestaurantAlerts({
-        orders,
-        offers,
-        restaurantId: activeRestaurant?.id,
-      }),
-    [orders, offers, activeRestaurant?.id]
-  );
 
   useEffect(() => {
-    setNotifications((prev) => {
-      const prevById = new Map(prev.map((item) => [item.id, item]));
-      const manualNotifications = prev.filter((item) => !item.id.startsWith("auto-"));
-      const liveNotifications = generatedNotifications
-        .filter((item) => !dismissedAutoIds.includes(item.id))
-        .map((item) => ({
-          ...item,
-          read: prevById.get(item.id)?.read ?? item.read,
-        }));
+    if (unreadCount > 0) {
+      markAllAsRead();
+    }
+  }, [unreadCount, markAllAsRead]);
 
-      return [...liveNotifications, ...manualNotifications].sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      });
-    });
-  }, [generatedNotifications, dismissedAutoIds]);
+  const notifications = useMemo(() => {
+    return dbNotifications.map((notif) => ({
+      ...notif,
+      time: formatAlertTime(notif.createdAt),
+    }));
+  }, [dbNotifications]);
 
   // ==========================================
   // 5. DYNAMIC CALCULATIONS & FILTERING
@@ -258,11 +229,6 @@ export function Notifications() {
       return notif.type === activeTab;
     });
   }, [notifications, activeTab]);
-
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications]
-  );
 
   const tabCounts = useMemo(() => {
     const counts: Record<string, number> = { all: notifications.length };
@@ -276,34 +242,16 @@ export function Notifications() {
   // 6. ACTION HANDLERS
   // ==========================================
   const handleToggleRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => {
-        if (n.id === id) {
-          const updatedRead = !n.read;
-          toast.info(updatedRead ? "Marked as read" : "Marked as unread");
-          return { ...n, read: updatedRead };
-        }
-        return n;
-      })
-    );
+    markAsRead(id);
   };
 
   const handleDeleteNotif = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (id.startsWith("auto-")) {
-      setDismissedAutoIds((prev) => {
-        const updated = Array.from(new Set([...prev, id]));
-        localStorage.setItem("trinco_dismissed_auto_notifications", JSON.stringify(updated));
-        return updated;
-      });
-    }
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-    toast.success("Notification cleared");
+    deleteNotification(id);
   };
 
   const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    toast.success("All notifications marked as read");
+    markAllAsRead();
   };
 
   const handleClearRead = () => {
@@ -316,20 +264,7 @@ export function Notifications() {
   };
 
   const confirmClearRead = () => {
-    const readAutoIds = notifications
-      .filter((notification) => notification.read && notification.id.startsWith("auto-"))
-      .map((notification) => notification.id);
-
-    if (readAutoIds.length > 0) {
-      setDismissedAutoIds((prev) => {
-        const updated = Array.from(new Set([...prev, ...readAutoIds]));
-        localStorage.setItem("trinco_dismissed_auto_notifications", JSON.stringify(updated));
-        return updated;
-      });
-    }
-
-    setNotifications((prev) => prev.filter((n) => !n.read));
-    toast.success("Cleared all read notifications");
+    clearReadNotifications();
     setIsConfirmClearOpen(false);
   };
 
@@ -344,10 +279,13 @@ export function Notifications() {
     );
   };
 
-  const handleSavePreferences = () => {
-    setPreferences([...tempPreferences]);
-    setIsSettingsOpen(false);
-    toast.success("Notification preferences updated successfully!");
+  const handleSavePreferences = async () => {
+    try {
+      await updatePreferences(tempPreferences);
+      setIsSettingsOpen(false);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const TABS = [
@@ -450,16 +388,16 @@ export function Notifications() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`relative flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-black whitespace-nowrap transition-all duration-200 cursor-pointer ${isActive
-                  ? "bg-[#D45113] text-white shadow-[0_4px_14px_-4px_rgba(212,81,19,0.55)]"
-                  : "bg-white/80 dark:bg-slate-900/70 border border-[#4E3E2A]/10 dark:border-slate-800 text-[#4E3E2A]/70 dark:text-slate-400 hover:text-[#813405] dark:hover:text-[#F9A03F] hover:border-[#D45113]/20"
+                ? "bg-[#D45113] text-white shadow-[0_4px_14px_-4px_rgba(212,81,19,0.55)]"
+                : "bg-white/80 dark:bg-slate-900/70 border border-[#4E3E2A]/10 dark:border-slate-800 text-[#4E3E2A]/70 dark:text-slate-400 hover:text-[#813405] dark:hover:text-[#F9A03F] hover:border-[#D45113]/20"
                 }`}
             >
               {tab.label}
               {count > 0 && (
                 <span
                   className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black ${isActive
-                      ? "bg-white/25 text-white"
-                      : "bg-[#4E3E2A]/8 dark:bg-slate-800 text-[#4E3E2A]/60 dark:text-slate-400"
+                    ? "bg-white/25 text-white"
+                    : "bg-[#4E3E2A]/8 dark:bg-slate-800 text-[#4E3E2A]/60 dark:text-slate-400"
                     }`}
                 >
                   {count}
@@ -512,10 +450,18 @@ export function Notifications() {
                   }}
                   onHoverStart={() => setHoveredId(notif.id)}
                   onHoverEnd={() => setHoveredId(null)}
-                  onClick={() => handleToggleRead(notif.id)}
+                  onClick={() => {
+                    handleToggleRead(notif.id);
+                    if (notif.orderId) {
+                      navigate({
+                        to: "/restaurant/orders",
+                        search: { orderId: notif.orderId } as any,
+                      });
+                    }
+                  }}
                   className={`group relative overflow-hidden rounded-2xl border cursor-pointer transition-all duration-200 ${!notif.read
-                      ? "bg-white dark:bg-slate-900 border-[#4E3E2A]/12 dark:border-slate-800/80 shadow-[0_2px_16px_-4px_rgba(78,62,42,0.1)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.3)]"
-                      : "bg-white/60 dark:bg-slate-900/50 border-[#4E3E2A]/6 dark:border-slate-800/50"
+                    ? "bg-white dark:bg-slate-900 border-[#4E3E2A]/12 dark:border-slate-800/80 shadow-[0_2px_16px_-4px_rgba(78,62,42,0.1)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.3)]"
+                    : "bg-white/60 dark:bg-slate-900/50 border-[#4E3E2A]/6 dark:border-slate-800/50"
                     } hover:shadow-[0_6px_24px_-6px_rgba(78,62,42,0.15)] dark:hover:shadow-[0_6px_24px_-6px_rgba(0,0,0,0.4)] hover:border-[#4E3E2A]/20 dark:hover:border-slate-700`}
                 >
                   {/* Unread gradient wash */}
@@ -536,8 +482,8 @@ export function Notifications() {
                     {/* Icon */}
                     <div
                       className={`relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${!notif.read
-                          ? `bg-gradient-to-br ${meta.gradient} border border-current/10`
-                          : "bg-[#4E3E2A]/5 dark:bg-slate-800"
+                        ? `bg-gradient-to-br ${meta.gradient} border border-current/10`
+                        : "bg-[#4E3E2A]/5 dark:bg-slate-800"
                         }`}
                     >
                       <span className={meta.iconColor}>{icon}</span>
@@ -564,8 +510,8 @@ export function Notifications() {
                       </div>
                       <h4
                         className={`text-sm font-black tracking-tight truncate ${!notif.read
-                            ? "text-[#813405] dark:text-[#F9A03F]"
-                            : "text-[#4E3E2A]/80 dark:text-slate-300"
+                          ? "text-[#813405] dark:text-[#F9A03F]"
+                          : "text-[#4E3E2A]/80 dark:text-slate-300"
                           }`}
                       >
                         {notif.title}
@@ -693,14 +639,14 @@ export function Notifications() {
                     transition={{ delay: i * 0.03 }}
                     onClick={() => handleTogglePreference(pref.key)}
                     className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${pref.enabled
-                        ? "bg-white dark:bg-slate-950 border-[#4E3E2A]/8 dark:border-slate-800 hover:border-[#D45113]/20"
-                        : "bg-[#4E3E2A]/3 dark:bg-slate-950/50 border-transparent hover:border-[#4E3E2A]/8"
+                      ? "bg-white dark:bg-slate-950 border-[#4E3E2A]/8 dark:border-slate-800 hover:border-[#D45113]/20"
+                      : "bg-[#4E3E2A]/3 dark:bg-slate-950/50 border-transparent hover:border-[#4E3E2A]/8"
                       }`}
                   >
                     <span
                       className={`text-xs font-bold transition-colors ${pref.enabled
-                          ? "text-[#4E3E2A]/90 dark:text-slate-200"
-                          : "text-[#4E3E2A]/40 dark:text-slate-500"
+                        ? "text-[#4E3E2A]/90 dark:text-slate-200"
+                        : "text-[#4E3E2A]/40 dark:text-slate-500"
                         }`}
                     >
                       {pref.label}
@@ -709,8 +655,8 @@ export function Notifications() {
                     {/* Toggle switch */}
                     <div
                       className={`relative w-10 h-5.5 rounded-full transition-colors duration-300 shrink-0 ${pref.enabled
-                          ? "bg-[#D45113]"
-                          : "bg-slate-200 dark:bg-slate-800"
+                        ? "bg-[#D45113]"
+                        : "bg-slate-200 dark:bg-slate-800"
                         }`}
                       style={{ height: "22px", width: "40px" }}
                     >

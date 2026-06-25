@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Pizza, GlassWater, IceCream, Flame, Fish, Utensils, Plus,
@@ -8,9 +8,10 @@ import {
   ShoppingBag, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
-import { categories as mockCategories } from "@/utils/data/mock";
+
 import { useAuth } from "@/context/AuthContext";
 import { useRestaurants } from "@/context/RestaurantContext";
+import { apiRequest } from "@/utils/api";
 
 // Define Category Item interface
 export interface CategoryItem {
@@ -36,8 +37,7 @@ const IconComponents = {
 };
 
 const getCategoryImage = (name: string) => {
-  const match = mockCategories.find((category) => category.name.toLowerCase() === name.toLowerCase());
-  return match?.image || mockCategories[0]?.image || "";
+  return "";
 };
 
 const getCategoryIcon = (name: string): CategoryItem["iconName"] => {
@@ -51,7 +51,7 @@ const getCategoryIcon = (name: string): CategoryItem["iconName"] => {
 };
 
 export function CategoryManagement() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { restaurants, updateRestaurantMenu, updateRestaurantProfile } = useRestaurants();
   const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -60,6 +60,7 @@ export function CategoryManagement() {
   const [sortOption, setSortOption] = useState<"Newest" | "Oldest" | "Most Items" | "Alphabetical">("Newest");
   const [layoutMode, setLayoutMode] = useState<"grid" | "list">("grid");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(true);
 
   // Modal / form states
   const [activeModalCategory, setActiveModalCategory] = useState<CategoryItem | null>(null);
@@ -73,34 +74,93 @@ export function CategoryManagement() {
   const [formIconName, setFormIconName] = useState<"Pizza" | "GlassWater" | "IceCream" | "Flame" | "Fish" | "Utensils">("Pizza");
   const [formDisplayOrder, setFormDisplayOrder] = useState(1);
   const [formStatus, setFormStatus] = useState<"Active" | "Hidden">("Active");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  const buildCategoriesFromRestaurant = () => {
-    if (!activeRestaurant) return [];
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const menuCategoryNames = Array.from(new Set(activeRestaurant.menu.map((item) => item.category)));
-    const knownCategoryNames = Array.from(new Set([...activeRestaurant.categories, ...menuCategoryNames]));
+    const file = files[0];
+    setIsUploadingImage(true);
+    const uploadToast = toast.loading("Uploading category image to Cloudinary...");
 
-    return knownCategoryNames.map((name, index) => {
-      const categoryItems = activeRestaurant.menu.filter((item) => item.category === name);
-      const isVisibleCategory = activeRestaurant.categories.includes(name);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-      return {
-        id: `TB-C-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-        name,
-        description: `${name} menu category`,
-        image: getCategoryImage(name),
-        iconName: getCategoryIcon(name),
-        totalItems: categoryItems.length,
-        status: isVisibleCategory ? "Active" : "Hidden",
-        createdDate: "2026-05-10",
-        displayOrder: index + 1,
-      } satisfies CategoryItem;
-    });
+      const res = await apiRequest<{ message: string; url: string }>("/category/upload", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+
+      setFormImage(res.url);
+      toast.success("Category image uploaded successfully!", { id: uploadToast });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to upload image. Please verify your Cloudinary config.", { id: uploadToast });
+    } finally {
+      setIsUploadingImage(false);
+    }
   };
 
+  // Fetch categories from backend
+  const fetchCategories = useCallback(async (searchQuery?: string) => {
+    if (!token) return;
+    setLoadingCategories(true);
+    try {
+      const path = searchQuery && searchQuery.trim() !== "" 
+        ? `/category?search=${encodeURIComponent(searchQuery)}` 
+        : "/category";
+      
+      const data = await apiRequest<any[]>(path, {
+        method: "GET",
+        token,
+      });
+
+      const items: CategoryItem[] = data.map((item) => {
+        const totalItems = activeRestaurant 
+          ? activeRestaurant.menu.filter((m) => {
+              const mCat = m.category.toLowerCase();
+              const itemCat = item.name.toLowerCase();
+              return m.categoryId === item.id || 
+                     mCat === itemCat || 
+                     mCat === itemCat + 's' || 
+                     itemCat === mCat + 's' || 
+                     mCat.startsWith(itemCat.substring(0, 4));
+            }).length 
+          : 0;
+
+        return {
+          id: item.id,
+          name: item.name,
+          description: item.description || "",
+          image: item.image || getCategoryImage(item.name),
+          iconName: (item.iconName || getCategoryIcon(item.name)) as CategoryItem["iconName"],
+          totalItems,
+          status: (item.status || "Active") as CategoryItem["status"],
+          createdDate: new Date(item.createdAt).toISOString().split("T")[0],
+          displayOrder: item.displayOrder ?? 1,
+        };
+      });
+
+      setCategories(items);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load categories");
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, [token, activeRestaurant]);
+
+  // Debounce search input and fetch categories
   useEffect(() => {
-    setCategories(buildCategoriesFromRestaurant());
-  }, [activeRestaurant?.id, activeRestaurant?.menu, activeRestaurant?.categories]);
+    if (!token) return;
+    const delayDebounceFn = setTimeout(() => {
+      fetchCategories(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm, token, fetchCategories]);
 
   const cascadeCategoryVisibility = (categoryName: string, nextStatus: "Active" | "Hidden") => {
     if (!activeRestaurant) return;
@@ -124,33 +184,34 @@ export function CategoryManagement() {
     updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success("Categories refreshed successfully");
-    }, 700);
+    await fetchCategories(searchTerm);
+    setIsRefreshing(false);
+    toast.success("Categories refreshed successfully");
   };
 
   // Toggle Visibility Status directly on card
-  const toggleVisibility = (catId: string) => {
+  const toggleVisibility = async (catId: string) => {
     const target = categories.find((category) => category.id === catId);
     if (!target) return;
     const nextStatus = target.status === "Active" ? "Hidden" : "Active";
 
-    setCategories((prev) =>
-      prev.map((c) => {
-        if (c.id === catId) {
-          return {
-            ...c,
-            status: nextStatus
-          };
-        }
-        return c;
-      })
-    );
-    cascadeCategoryVisibility(target.name, nextStatus);
-    toast.success(`Category "${target.name}" ${nextStatus === "Active" ? "enabled" : "disabled"} in menu and customer view`);
+    try {
+      await apiRequest<any>(`/category/${catId}`, {
+        method: "PUT",
+        token,
+        body: {
+          status: nextStatus,
+        },
+      });
+
+      cascadeCategoryVisibility(target.name, nextStatus);
+      fetchCategories(searchTerm);
+      toast.success(`Category "${target.name}" ${nextStatus === "Active" ? "enabled" : "disabled"} in menu and customer view`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update category status");
+    }
   };
 
   // Delete Category item
@@ -158,18 +219,29 @@ export function CategoryManagement() {
     setDeleteTarget(cat);
   };
 
-  const confirmDeleteCategory = () => {
+  const confirmDeleteCategory = async () => {
     if (!deleteTarget) return;
-    if (activeRestaurant) {
-      const updatedMenu = activeRestaurant.menu.filter((item) => item.category !== deleteTarget.name);
-      const updatedCategories = activeRestaurant.categories.filter((name) => name !== deleteTarget.name);
-      updateRestaurantMenu(activeRestaurant.id, updatedMenu);
-      updateRestaurantProfile(activeRestaurant.id, { categories: updatedCategories });
+    try {
+      await apiRequest<any>(`/category/${deleteTarget.id}`, {
+        method: "DELETE",
+        token,
+      });
+
+      if (activeRestaurant) {
+        const updatedMenu = activeRestaurant.menu.filter((item) => item.category !== deleteTarget.name);
+        const updatedCategories = activeRestaurant.categories.filter((name) => name !== deleteTarget.name);
+        updateRestaurantMenu(activeRestaurant.id, updatedMenu);
+        updateRestaurantProfile(activeRestaurant.id, { categories: updatedCategories });
+      }
+
+      toast.error(`Category "${deleteTarget.name}" and its menu items were removed from customer view.`);
+      setDeleteTarget(null);
+      fetchCategories(searchTerm);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete category");
     }
-    setCategories((prev) => prev.filter((c) => c.id !== deleteTarget.id));
-    toast.error(`Category "${deleteTarget.name}" and its menu items were removed from customer view.`);
-    setDeleteTarget(null);
   };
+
 
 
   // Filters & Sort Logic
@@ -229,80 +301,89 @@ export function CategoryManagement() {
   };
 
   // Save Modal Form (Insert or Edit)
-  const handleSaveCategory = (e: React.FormEvent) => {
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
       toast.error("Please provide a category name");
       return;
     }
 
-    if (isAddMode) {
-      if (activeRestaurant) {
-        const nextCategories = Array.from(new Set([...activeRestaurant.categories, formName]));
-        updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
-      }
-      const newCat: CategoryItem = {
-        id: `TB-C00${categories.length + 1}`,
-        name: formName,
-        description: formDescription,
-        image: formImage,
-        iconName: formIconName,
-        totalItems: 0,
-        status: formStatus,
-        createdDate: new Date().toISOString().split("T")[0],
-        displayOrder: Number(formDisplayOrder)
-      };
-
-      setCategories([...categories, newCat]);
-      toast.success(`Category "${formName}" created successfully!`);
-    } else {
-      if (!activeModalCategory) return;
-      if (activeRestaurant) {
-        const renamedMenu = activeRestaurant.menu.map((item) =>
-          item.category === activeModalCategory.name ? { ...item, category: formName } : item
-        );
-        const nextCategories = Array.from(
-          new Set(
-            activeRestaurant.categories
-              .filter((name) => name !== activeModalCategory.name)
-              .concat(formStatus === "Active" ? [formName] : [])
-          )
-        );
-
-        const updatedMenu = renamedMenu.map((item) => {
-          if (item.category !== formName) return item;
-          const typedItem = item as any;
-          return {
-            ...item,
-            isAvailable: formStatus === "Active",
-            stock: formStatus === "Active" ? (typedItem.stock && typedItem.stock > 0 ? typedItem.stock : 20) : 0,
-          };
+    try {
+      if (isAddMode) {
+        // Create on backend
+        await apiRequest<any>("/category", {
+          method: "POST",
+          token,
+          body: {
+            name: formName,
+            description: formDescription,
+            image: formImage,
+            iconName: formIconName,
+            displayOrder: Number(formDisplayOrder),
+            status: formStatus,
+          },
         });
 
-        updateRestaurantMenu(activeRestaurant.id, updatedMenu);
-        updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
-      }
-      setCategories((prev) =>
-        prev.map((c) => {
-          if (c.id === activeModalCategory.id) {
-            return {
-              ...c,
-              name: formName,
-              description: formDescription,
-              image: formImage,
-              iconName: formIconName,
-              displayOrder: Number(formDisplayOrder),
-              status: formStatus
-            };
-          }
-          return c;
-        })
-      );
-      toast.success(`Category "${formName}" updated successfully!`);
-    }
+        // Sync with local context if needed
+        if (activeRestaurant) {
+          const nextCategories = Array.from(new Set([...activeRestaurant.categories, formName]));
+          updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
+        }
 
-    setActiveModalCategory(null);
-    setIsAddMode(false);
+        toast.success(`Category "${formName}" created successfully!`);
+      } else {
+        if (!activeModalCategory) return;
+        
+        // Update on backend
+        await apiRequest<any>(`/category/${activeModalCategory.id}`, {
+          method: "PUT",
+          token,
+          body: {
+            name: formName,
+            description: formDescription,
+            image: formImage,
+            iconName: formIconName,
+            displayOrder: Number(formDisplayOrder),
+            status: formStatus,
+          },
+        });
+
+        // Sync with local context
+        if (activeRestaurant) {
+          const renamedMenu = activeRestaurant.menu.map((item) =>
+            item.category === activeModalCategory.name ? { ...item, category: formName } : item
+          );
+          const nextCategories = Array.from(
+            new Set(
+              activeRestaurant.categories
+                .filter((name) => name !== activeModalCategory.name)
+                .concat(formStatus === "Active" ? [formName] : [])
+            )
+          );
+
+          const updatedMenu = renamedMenu.map((item) => {
+            if (item.category !== formName) return item;
+            const typedItem = item as any;
+            return {
+              ...item,
+              isAvailable: formStatus === "Active",
+              stock: formStatus === "Active" ? (typedItem.stock && typedItem.stock > 0 ? typedItem.stock : 20) : 0,
+            };
+          });
+
+          updateRestaurantMenu(activeRestaurant.id, updatedMenu);
+          updateRestaurantProfile(activeRestaurant.id, { categories: nextCategories });
+        }
+
+        toast.success(`Category "${formName}" updated successfully!`);
+      }
+
+      fetchCategories(searchTerm);
+      setActiveModalCategory(null);
+      setIsAddMode(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save category");
+    }
   };
 
   return (
@@ -313,7 +394,7 @@ export function CategoryManagement() {
       className="flex flex-col gap-6"
     >
       {/* 1. Top Action Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
             Category Management
@@ -325,7 +406,7 @@ export function CategoryManagement() {
         </div>
 
         {/* Global Action Buttons */}
-        <div className="flex items-center flex-wrap gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           <button
             onClick={openAddModal}
             className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#71A066] hover:bg-emerald-600 transition duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm shadow-[#71A066]/10"
@@ -425,9 +506,9 @@ export function CategoryManagement() {
       </div>
 
       {/* 3. Search & Filter Bar Section */}
-      <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
         {/* Left: search input and filter buttons */}
-        <div className="w-full flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <div className="w-full flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 min-w-0">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3.5 top-3 text-slate-400 dark:text-slate-500" />
             <input
@@ -475,22 +556,20 @@ export function CategoryManagement() {
         <div className="flex items-center gap-1 bg-slate-100/60 dark:bg-slate-850 border border-slate-200/30 dark:border-slate-800/80 p-0.5 rounded-xl self-end sm:self-auto shadow-xs">
           <button
             onClick={() => setLayoutMode("grid")}
-            className={`p-2 rounded-lg transition duration-200 cursor-pointer ${
-              layoutMode === "grid"
-                ? "bg-white dark:bg-slate-900 text-[#71A066] shadow-xs"
-                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            }`}
+            className={`p-2 rounded-lg transition duration-200 cursor-pointer ${layoutMode === "grid"
+              ? "bg-white dark:bg-slate-900 text-[#71A066] shadow-xs"
+              : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              }`}
             title="Grid Layout"
           >
             <LayoutGrid size={13} />
           </button>
           <button
             onClick={() => setLayoutMode("list")}
-            className={`p-2 rounded-lg transition duration-200 cursor-pointer ${
-              layoutMode === "list"
-                ? "bg-white dark:bg-slate-900 text-[#71A066] shadow-xs"
-                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            }`}
+            className={`p-2 rounded-lg transition duration-200 cursor-pointer ${layoutMode === "list"
+              ? "bg-white dark:bg-slate-900 text-[#71A066] shadow-xs"
+              : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              }`}
             title="List Layout"
           >
             <List size={13} />
@@ -568,12 +647,7 @@ export function CategoryManagement() {
 
                     {/* Card operations footer */}
                     <div className="px-4.5 py-3 border-t border-slate-100 dark:border-slate-800/85 bg-slate-50/50 dark:bg-slate-800/10 flex items-center justify-between gap-3">
-                      <button
-                        onClick={() => toast.info(`Viewing all ${cat.name} foods items`)}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 hover:text-slate-800 hover:border-slate-300 dark:text-slate-400 dark:hover:text-white shadow-xs transition cursor-pointer flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider px-2.5"
-                      >
-                        <Info size={11} /> View Foods
-                      </button>
+
 
                       <div className="flex items-center gap-1.5">
                         <button
@@ -682,7 +756,7 @@ export function CategoryManagement() {
               </div>
               <p className="text-sm font-bold text-slate-550 dark:text-slate-400">No Categories Found</p>
               <p className="text-xs text-slate-450 mt-0.5">There are no food categories matching your current filters.</p>
-              
+
               <button
                 onClick={openAddModal}
                 className="mt-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#71A066] hover:bg-emerald-600 transition flex items-center gap-1 cursor-pointer"
@@ -730,23 +804,37 @@ export function CategoryManagement() {
 
               {/* Form Body */}
               <form onSubmit={handleSaveCategory} className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5 text-xs">
-                
+
                 {/* Image selection drag uploader zone */}
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Category Banner Image</label>
-                  
+
                   <div className="grid grid-cols-5 gap-3.5 items-center">
                     {/* Clickable preview block */}
                     <div
-                      onClick={() => document.getElementById("category-image-uploader")?.click()}
+                      onClick={() => !isUploadingImage && document.getElementById("category-image-uploader")?.click()}
                       className="col-span-2 relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 group/img cursor-pointer"
                       title="Click to select image file"
                     >
-                      <img src={formImage} className="w-full h-full object-contain" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex flex-col items-center justify-center text-white transition-opacity duration-150 text-[9px] font-bold">
-                        <Upload size={14} className="mb-1" />
-                        <span>Upload Custom</span>
-                      </div>
+                      {formImage ? (
+                        <img src={formImage} className="w-full h-full object-contain" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400">
+                          <Upload size={20} />
+                        </div>
+                      )}
+                      
+                      {isUploadingImage ? (
+                        <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center text-white text-[9px] font-bold">
+                          <RefreshCw size={16} className="animate-spin mb-1 text-[#71A066]" />
+                          <span>Uploading...</span>
+                        </div>
+                      ) : (
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex flex-col items-center justify-center text-white transition-opacity duration-150 text-[9px] font-bold">
+                          <Upload size={14} className="mb-1" />
+                          <span>Upload Custom</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Hidden Native File Input */}
@@ -755,20 +843,8 @@ export function CategoryManagement() {
                       id="category-image-uploader"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
-                        const files = e.target.files;
-                        if (files && files.length > 0) {
-                          const file = files[0];
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            if (event.target?.result) {
-                              setFormImage(event.target.result as string);
-                              toast.success("Category custom image loaded!");
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
+                      disabled={isUploadingImage}
+                      onChange={handleImageUpload}
                     />
 
                     {/* Preseeded preset default selections */}
@@ -780,9 +856,8 @@ export function CategoryManagement() {
                             key={c.id}
                             type="button"
                             onClick={() => setFormImage(c.image)}
-                            className={`h-9 w-9 rounded-lg overflow-hidden border-2 transition duration-150 shrink-0 cursor-pointer ${
-                              formImage === c.image ? "border-[#71A066] scale-95" : "border-transparent opacity-65 hover:opacity-100"
-                            }`}
+                            className={`h-9 w-9 rounded-lg overflow-hidden border-2 transition duration-150 shrink-0 cursor-pointer ${formImage === c.image ? "border-[#71A066] scale-95" : "border-transparent opacity-65 hover:opacity-100"
+                              }`}
                           >
                             <img src={c.image} className="w-full h-full object-contain" />
                           </button>
@@ -849,11 +924,10 @@ export function CategoryManagement() {
                           key={iconKey}
                           type="button"
                           onClick={() => setFormIconName(iconKey)}
-                          className={`py-3 rounded-xl border flex flex-col items-center justify-center gap-1 hover:border-[#71A066] hover:text-[#71A066] transition cursor-pointer ${
-                            formIconName === iconKey
-                              ? "border-[#71A066] text-[#71A066] bg-[#71A066]/5"
-                              : "border-slate-200/60 dark:border-slate-800/80 text-slate-450 dark:text-slate-400 bg-slate-50/20 dark:bg-slate-900/10"
-                          }`}
+                          className={`py-3 rounded-xl border flex flex-col items-center justify-center gap-1 hover:border-[#71A066] hover:text-[#71A066] transition cursor-pointer ${formIconName === iconKey
+                            ? "border-[#71A066] text-[#71A066] bg-[#71A066]/5"
+                            : "border-slate-200/60 dark:border-slate-800/80 text-slate-450 dark:text-slate-400 bg-slate-50/20 dark:bg-slate-900/10"
+                            }`}
                         >
                           <PresIcon size={16} />
                           <span className="text-[7.5px] font-extrabold uppercase tracking-wider">{iconKey}</span>
@@ -873,14 +947,12 @@ export function CategoryManagement() {
                   <button
                     type="button"
                     onClick={() => setFormStatus(formStatus === "Active" ? "Hidden" : "Active")}
-                    className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-250 cursor-pointer ${
-                      formStatus === "Active" ? "bg-[#71A066]" : "bg-slate-300 dark:bg-slate-700"
-                    }`}
+                    className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-250 cursor-pointer ${formStatus === "Active" ? "bg-[#71A066]" : "bg-slate-300 dark:bg-slate-700"
+                      }`}
                   >
                     <div
-                      className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-250 transform ${
-                        formStatus === "Active" ? "translate-x-4" : "translate-x-0"
-                      }`}
+                      className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-250 transform ${formStatus === "Active" ? "translate-x-4" : "translate-x-0"
+                        }`}
                     />
                   </button>
                 </div>

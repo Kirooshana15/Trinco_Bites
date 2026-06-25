@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { useOrders } from "@/context/OrderContext";
-import { buildRestaurantAlerts } from "@/utils/restaurantNotifications";
+import { formatAlertTime } from "@/utils/restaurantNotifications";
+import { useNotifications } from "@/context/NotificationContext";
 import { C } from "@/utils/theme";
 import logo from "@/assets/logo.png";
 
@@ -47,8 +48,7 @@ export function RestaurantAdminLayout() {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const { user, isAuthenticated, logout } = useAuth();
-  const { findRestaurant, offers } = useRestaurants();
-  const { orders } = useOrders();
+  const { findRestaurant } = useRestaurants();
   const currentRestaurant = user?.restaurantId ? findRestaurant(user.restaurantId) : undefined;
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -58,26 +58,23 @@ export function RestaurantAdminLayout() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(true);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+  const { notifications: rawNotifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
   const notifications = useMemo(
     () =>
-      buildRestaurantAlerts({
-        orders,
-        offers,
-        restaurantId: currentRestaurant?.id,
-      })
+      rawNotifications
+        .filter((alert) => !alert.read) // Only show unread notifications in the dropdown
         .slice(0, 8)
         .map((alert) => ({
           id: alert.id,
           title: alert.title,
           message: alert.description,
-          timestamp: alert.time,
-          type: alert.type === "offers" ? "coupon" : alert.type === "payments" ? "payment" : "order",
-          isUnread: !alert.read && !readNotificationIds.includes(alert.id),
+          timestamp: formatAlertTime(alert.createdAt),
+          type: alert.type === "offers" ? "coupon" : alert.type === "payments" ? "payment" : alert.type === "customers" ? "review" : "order",
+          isUnread: !alert.read,
           orderId: alert.orderId,
         })),
-    [orders, offers, currentRestaurant?.id, readNotificationIds]
+    [rawNotifications]
   );
 
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
@@ -89,13 +86,13 @@ export function RestaurantAdminLayout() {
   };
 
   const handleMarkAllRead = () => {
-    setReadNotificationIds(notifications.map((notification) => notification.id));
+    markAllAsRead();
   };
 
-  const handleNotificationClick = (notification: { id: string; orderId?: string }) => {
-    setReadNotificationIds((prev) =>
-      prev.includes(notification.id) ? prev : [...prev, notification.id]
-    );
+  const handleNotificationClick = (notification: { id: string; orderId?: string; isUnread: boolean }) => {
+    if (notification.isUnread) {
+      markAsRead(notification.id);
+    }
     setIsNotificationOpen(false);
 
     if (notification.orderId) {
@@ -105,8 +102,6 @@ export function RestaurantAdminLayout() {
       });
     }
   };
-
-  const unreadCount = notifications.filter(n => n.isUnread).length;
 
   useEffect(() => {
     // Route guard: only restaurant admins allowed
@@ -121,6 +116,23 @@ export function RestaurantAdminLayout() {
       }
     }
   }, [isAuthenticated, user, navigate]);
+
+  // Handle responsive sidebar collapsing on tablet views (width 768px to 1024px)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleResize = () => {
+      if (window.innerWidth >= 768 && window.innerWidth < 1024) {
+        setIsSidebarCollapsed(true);
+      } else if (window.innerWidth >= 1024) {
+        setIsSidebarCollapsed(false);
+      }
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -176,7 +188,7 @@ export function RestaurantAdminLayout() {
     collapsed: { opacity: 0, x: -10, transitionEnd: { display: "none" }, transition: { duration: 0.1 } }
   };
 
-  const SidebarContent = ({ isMobile = false }) => (
+  const renderSidebarContent = (isMobile = false) => (
     <div className="flex flex-col h-full py-6 select-none">
       {/* Brand Header */}
       <div 
@@ -312,7 +324,13 @@ export function RestaurantAdminLayout() {
           <div className="bg-[#FFFCF5]/40 backdrop-blur-sm rounded-2xl p-3 flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-sm shadow-sm shrink-0 overflow-hidden border border-[#71A066]/20">
-                {currentRestaurant?.image ? (
+                {currentRestaurant?.logoImage ? (
+                  <img
+                    src={currentRestaurant.logoImage}
+                    alt={`${currentRestaurant.name} logo`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : currentRestaurant?.image ? (
                   <img
                     src={currentRestaurant.image}
                     alt={`${currentRestaurant.name} logo`}
@@ -338,7 +356,13 @@ export function RestaurantAdminLayout() {
         ) : (
           <div className="flex flex-col items-center gap-4 w-full">
             <div className="h-10 w-10 rounded-full bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-sm shadow-sm transition-all duration-200 hover:scale-105 overflow-hidden border border-[#71A066]/20">
-              {currentRestaurant?.image ? (
+              {currentRestaurant?.logoImage ? (
+                <img
+                  src={currentRestaurant.logoImage}
+                  alt={`${currentRestaurant.name} logo`}
+                  className="h-full w-full object-cover"
+                />
+              ) : currentRestaurant?.image ? (
                 <img
                   src={currentRestaurant.image}
                   alt={`${currentRestaurant.name} logo`}
@@ -367,7 +391,9 @@ export function RestaurantAdminLayout() {
   );
 
   return (
-    <div className="flex min-h-screen bg-gradient-soft font-sans overflow-hidden">
+    <div className={`flex w-full max-w-full min-h-screen bg-gradient-soft font-sans overflow-hidden ${
+      isSidebarCollapsed ? "sidebar-collapsed" : "sidebar-expanded"
+    }`}>
       
       {/* 1. Desktop Sidebar Container */}
       <motion.aside
@@ -376,7 +402,7 @@ export function RestaurantAdminLayout() {
         variants={sidebarVariants}
         className="hidden md:flex flex-col h-screen sticky top-0 bg-gradient-to-b from-[#F7E5C3] to-[#E9C88C] border-r border-[#4E3E2A]/10 z-30 shadow-sm overflow-hidden shrink-0"
       >
-        <SidebarContent />
+        {renderSidebarContent(false)}
       </motion.aside>
  
       {/* 2. Mobile Drawer Navigation Overlay */}
@@ -397,7 +423,7 @@ export function RestaurantAdminLayout() {
               transition={{ type: "spring", damping: 25, stiffness: 220 }}
               className="fixed inset-y-0 left-0 w-[280px] bg-gradient-to-b from-[#F7E5C3] to-[#E9C88C] z-50 md:hidden shadow-2xl flex flex-col"
             >
-              <SidebarContent isMobile={true} />
+              {renderSidebarContent(true)}
             </motion.div>
           </>
         )}
@@ -407,7 +433,7 @@ export function RestaurantAdminLayout() {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         
         {/* Universal Top Header */}
-        <header className={`h-16 flex items-center justify-between px-6 sticky top-0 z-20 shrink-0 transition-all duration-300 ${
+        <header className={`h-16 flex items-center justify-between px-6 sticky top-0 z-20 shrink-0 min-w-0 transition-all duration-300 ${
           isScrolled 
             ? 'shadow-md bg-[#FAF7F2]/95 border-b border-[#4E3E2A]/15 backdrop-blur-md' 
             : 'bg-[#FAF7F2]/80 backdrop-blur-md border-b border-[#4E3E2A]/10'
@@ -468,7 +494,9 @@ export function RestaurantAdminLayout() {
             {/* Quick Notify bell icon & Dropdown Panel */}
             <div className="relative">
               <button 
-                onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+                onClick={() => {
+                  setIsNotificationOpen(!isNotificationOpen);
+                }}
                 className={`p-2 rounded-xl transition-all duration-200 relative shrink-0 ${
                   isNotificationOpen 
                     ? "bg-[#71A066] text-white shadow-md scale-105" 
@@ -586,8 +614,22 @@ export function RestaurantAdminLayout() {
  
             {/* Quick profile link */}
             <Link to="/restaurant/profile" className="flex items-center gap-2 text-left group shrink-0">
-              <div className="h-8 w-8 rounded-lg bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-xs group-hover:bg-[#71A066] group-hover:text-white transition duration-200 shadow-sm">
-                <User size={14} />
+              <div className="h-8 w-8 rounded-lg bg-[#71A066]/10 text-[#71A066] flex items-center justify-center font-bold text-xs group-hover:bg-[#71A066] group-hover:text-white transition duration-200 shadow-sm overflow-hidden border border-[#71A066]/20">
+                {currentRestaurant?.logoImage ? (
+                  <img
+                    src={currentRestaurant.logoImage}
+                    alt={`${currentRestaurant.name} logo`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : currentRestaurant?.image ? (
+                  <img
+                    src={currentRestaurant.image}
+                    alt={`${currentRestaurant.name} logo`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <User size={14} />
+                )}
               </div>
               <span className="hidden sm:inline font-bold text-xs text-[#4E3E2A] group-hover:text-[#71A066] transition-colors">
                 Profile
@@ -599,9 +641,30 @@ export function RestaurantAdminLayout() {
         {/* Dynamic Nested Route Content View */}
         <main 
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-soft custom-scrollbar"
+          className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 p-6 md:p-8 bg-gradient-soft custom-scrollbar"
         >
-          <Outlet />
+          {(!user?.restaurantId && currentPath !== "/restaurant/profile") ? (
+            <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl border border-brand-cream/30 dark:border-zinc-700/50 shadow-card max-w-xl mx-auto my-12">
+              <div className="h-16 w-16 rounded-full bg-brand-burnt/10 dark:bg-brand-orange/10 text-brand-burnt dark:text-brand-orange flex items-center justify-center mb-6">
+                <Store size={32} />
+              </div>
+              <h2 className="text-2xl font-black text-[#4E3E2A] dark:text-brand-orange tracking-tight mb-2">
+                Profile Setup Required
+              </h2>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6 max-w-sm">
+                Before you can manage menu items, categories, and track orders, you must create and save your restaurant profile.
+              </p>
+              <Link
+                to="/restaurant/profile"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-brand-burnt hover:bg-brand-burnt/95 text-white dark:bg-brand-orange dark:hover:bg-brand-orange/95 dark:text-brand-brown transition-all shadow-md cursor-pointer decoration-none"
+              >
+                Set Up Profile Now
+                <ChevronRight size={16} />
+              </Link>
+            </div>
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
     </div>

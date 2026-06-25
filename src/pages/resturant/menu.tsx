@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Eye, RefreshCw, Star, Sparkles,
@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { useAuth } from "@/context/AuthContext";
+import { apiRequest } from "@/utils/api";
 
 // Define strict high-fidelity interfaces
 export interface MenuVariant {
@@ -39,13 +40,12 @@ export interface MenuItem {
 }
 
 export function MenuManagement() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { restaurants, updateRestaurantMenu } = useRestaurants();
   const activeRestaurant = restaurants.find((r) => r.id === user?.restaurantId) || restaurants[0];
 
   const [currentRestaurantId, setCurrentRestaurantId] = useState<string>("");
 
-  // Initialize mock items dynamically from the logged-in restaurant's menu data
   const [items, setItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -53,6 +53,7 @@ export function MenuManagement() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<string>("All Day");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(true);
 
   // Modal form states
   const [activeModalItem, setActiveModalItem] = useState<MenuItem | null>(null);
@@ -72,8 +73,7 @@ export function MenuManagement() {
   const [formVariants, setFormVariants] = useState<MenuVariant[]>([]);
   const [formAddons, setFormAddons] = useState<MenuAddon[]>([]);
   const [formTimeAvailability, setFormTimeAvailability] = useState<"All Day" | "Breakfast" | "Lunch" | "Dinner">("All Day");
-
-
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Helper to sync local items changes back to global context
   const syncWithContext = (updatedItems: MenuItem[]) => {
@@ -87,7 +87,6 @@ export function MenuManagement() {
       rating: item.rating,
       popular: item.tags.includes("Bestseller"),
       category: item.category,
-      // Extra fields for rich features / details
       stock: item.stock,
       isAvailable: item.isAvailable,
       tags: item.tags,
@@ -99,63 +98,90 @@ export function MenuManagement() {
     updateRestaurantMenu(activeRestaurant.id, foodItems);
   };
 
-  // Pre-seed mock data on component load from the active restaurant
-  useEffect(() => {
-    if (activeRestaurant && activeRestaurant.menu.length > 0) {
-      if (activeRestaurant.id === currentRestaurantId && items.length > 0) {
-        return;
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    setIsUploadingImage(true);
+    const uploadToast = toast.loading("Uploading food image to Cloudinary...");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await apiRequest<{ message: string; url: string }>("/menu/upload", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+
+      setFormImage(res.url);
+      toast.success("Food image uploaded successfully!", { id: uploadToast });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to upload image. Please verify Cloudinary configuration.", { id: uploadToast });
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  // Fetch menu items from backend
+  const fetchItems = useCallback(async (searchQuery?: string, categoryFilter?: string) => {
+    if (!token) return;
+    setLoadingItems(true);
+    try {
+      let path = "/menu";
+      const params: string[] = [];
+      if (searchQuery && searchQuery.trim() !== "") {
+        params.push(`search=${encodeURIComponent(searchQuery)}`);
       }
-      setCurrentRestaurantId(activeRestaurant.id);
+      if (categoryFilter && categoryFilter !== "All") {
+        params.push(`category=${encodeURIComponent(categoryFilter)}`);
+      }
+      if (params.length > 0) {
+        path += "?" + params.join("&");
+      }
 
-      const seeded = activeRestaurant.menu.map((item, index) => {
-        const typedItem = item as any;
+      const data = await apiRequest<any[]>(path, {
+        method: "GET",
+        token,
+      });
 
-        // Reuse tags if they exist, otherwise compute default ones
-        const tags: ("Veg" | "Spicy" | "Bestseller" | "New")[] = typedItem.tags || [];
-        if (tags.length === 0) {
-          if (item.popular) tags.push("Bestseller");
-          const isDrink = ["mojito", "soft drink", "milkshake", "juice", "beverage", "drink"].some(c => item.category.toLowerCase().includes(c));
-          const isNonVeg = ["chicken", "beef", "prawn", "mutton", "fish", "seafood", "meat", "crab", "sausage", "egg"].some(w => item.name.toLowerCase().includes(w) || item.description.toLowerCase().includes(w));
-          if (index % 4 === 0 && !isDrink && !isNonVeg) tags.push("Veg");
-          if (index % 3 === 0 && !isDrink) tags.push("Spicy");
-          if (index === 0 || index === 3) tags.push("New");
-        }
-
-        // Reuse variants if they exist, otherwise compute default ones
-        let variants: MenuVariant[] = typedItem.variants || [];
-        if (variants.length === 0 && (item.category === "Fried Rice" || item.category === "Briyani" || item.category === "Kottu")) {
-          variants = [
-            { name: "Regular", price: item.price },
-            { name: "Full / Double", price: item.price + 350 }
-          ];
-        }
-
-        // Reuse addons if they exist, otherwise compute default ones
-        const addons: MenuAddon[] = typedItem.addons || [
-          { name: "Extra Gravy", price: 80 },
-          { name: "Egg / Cheese Wrap", price: 120 }
-        ];
-
+      const mapped: MenuItem[] = data.map((item) => {
         return {
           id: item.id,
           name: item.name,
-          category: item.category,
-          description: item.description,
-          image: item.image,
+          category: item.category?.name || item.categoryName || "Uncategorized",
+          description: item.description || "",
+          image: item.image || "",
           price: item.price,
-          stock: typedItem.stock !== undefined ? typedItem.stock : (index % 6 === 0 ? 0 : 35 + index),
-          isAvailable: typedItem.isAvailable !== undefined ? typedItem.isAvailable : (index % 6 !== 0),
-          tags,
-          variants,
-          addons,
-          timeAvailability: typedItem.timeAvailability || ((index % 3 === 0 ? "Lunch" : index % 3 === 1 ? "Dinner" : "All Day") as "All Day" | "Breakfast" | "Lunch" | "Dinner"),
-          rating: item.rating || 4.2,
-          ordersCount: typedItem.ordersCount || (88 + index * 14)
+          stock: item.stock ?? 0,
+          isAvailable: item.isAvailable ?? true,
+          tags: item.tags || [],
+          variants: item.variants || [],
+          addons: item.addons || [],
+          timeAvailability: item.timeAvailability || "All Day",
+          rating: item.rating || 5.0,
+          ordersCount: item.ordersCount || 0
         };
       });
-      setItems(seeded);
+
+      setItems(mapped);
+      syncWithContext(mapped);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load menu items");
+    } finally {
+      setLoadingItems(false);
     }
-  }, [activeRestaurant, currentRestaurantId, items.length]);
+  }, [token, activeRestaurant?.id]);
+
+  // Load backend items and sync
+  useEffect(() => {
+    if (token) {
+      fetchItems(searchTerm, selectedCategory);
+    }
+  }, [token, searchTerm, selectedCategory, fetchItems]);
 
   // Open Add Food Item modal if URL hash is #add
   useEffect(() => {
@@ -165,39 +191,61 @@ export function MenuManagement() {
     }
   }, [items]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success("Menu database refreshed successfully");
-    }, 700);
+    await fetchItems(searchTerm, selectedCategory);
+    setIsRefreshing(false);
+    toast.success("Menu database refreshed successfully");
   };
 
   // Switch availability toggle
-  const toggleAvailability = (itemId: string) => {
-    setItems((prev) => {
-      const updated = prev.map((it) => {
-        if (it.id === itemId) {
-          const nextState = !it.isAvailable;
-          toast.success(`${it.name} is now ${nextState ? "Available" : "Unavailable"}`);
-          return {
-            ...it,
-            isAvailable: nextState,
-            stock: nextState ? 20 : 0
-          };
-        }
-        return it;
+  const toggleAvailability = async (itemId: string) => {
+    const target = items.find((it) => it.id === itemId);
+    if (!target) return;
+    const nextState = !target.isAvailable;
+
+    try {
+      await apiRequest<any>(`/menu/${itemId}`, {
+        method: "PUT",
+        token,
+        body: {
+          isAvailable: nextState,
+          stock: nextState ? 20 : 0
+        },
       });
-      syncWithContext(updated);
-      return updated;
-    });
+
+      toast.success(`${target.name} is now ${nextState ? "Available" : "Unavailable"}`);
+      await fetchItems(searchTerm, selectedCategory);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update item availability");
+    }
   };
 
   // Get distinct categories from restaurant settings and existing menu items.
-  const categoriesList = [
-    "All",
-    ...Array.from(new Set([...(activeRestaurant?.categories || []), ...items.map((it) => it.category)])),
-  ];
+  // Rules:
+  //  1. Restaurant-defined categories come first (stable order).
+  //  2. Any extra categories found on items are appended after.
+  //  3. Case-insensitive deduplication – keeps the first seen casing.
+  //  4. "Uncategorized" is excluded from the filter tabs.
+  const buildCategoriesList = (): string[] => {
+    const seen = new Map<string, string>(); // lowercased key -> original display value
+    const ordered: string[] = [];
+
+    const add = (name: string) => {
+      if (!name || name === "Uncategorized") return;
+      const key = name.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.set(key, name);
+        ordered.push(name);
+      }
+    };
+
+    (activeRestaurant?.categories || []).forEach(add);
+    items.map((it) => it.category).forEach(add);
+
+    return ["All", ...ordered];
+  };
+  const categoriesList = buildCategoriesList();
 
   // Filters logic
   const filteredItems = items.filter((item) => {
@@ -206,7 +254,7 @@ export function MenuManagement() {
       item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.id.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesCategory = selectedCategory === "All" || item.category === selectedCategory;
+    const matchesCategory = selectedCategory === "All" || item.category.toLowerCase().trim() === selectedCategory.toLowerCase().trim();
 
     const matchesTag = selectedTag === "All" || item.tags.includes(selectedTag as any);
 
@@ -248,12 +296,10 @@ export function MenuManagement() {
     setFormPrice(800);
     setFormStock(50);
     setFormDescription("");
-    // Use first available mock food image as default
     setFormImage(items[0]?.image || "");
     setFormIsAvailable(true);
     setFormTags(["New"]);
     setFormVariants([]);
-    // Retain previously configured addons, or if none, set default ones
     if (formAddons.length === 0) {
       setFormAddons([
         { name: "Extra Gravy", price: 80 },
@@ -268,16 +314,21 @@ export function MenuManagement() {
     setDeleteTarget(item);
   };
 
-  const confirmDeleteItem = () => {
+  const confirmDeleteItem = async () => {
     if (!deleteTarget) return;
 
-    setItems((prev) => {
-      const updated = prev.filter((it) => it.id !== deleteTarget.id);
-      syncWithContext(updated);
-      return updated;
-    });
-    toast.error(`${deleteTarget.name} has been deleted from the menu.`);
-    setDeleteTarget(null);
+    try {
+      await apiRequest<any>(`/menu/${deleteTarget.id}`, {
+        method: "DELETE",
+        token,
+      });
+
+      toast.error(`${deleteTarget.name} has been deleted from the menu.`);
+      setDeleteTarget(null);
+      await fetchItems(searchTerm, selectedCategory);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete menu item");
+    }
   };
 
   // Dynamic Add / Remove Variants inside Modal
@@ -336,88 +387,77 @@ export function MenuManagement() {
   };
 
   // Save Modal Form (Insert or Update)
-  const handleSaveItem = (e: React.FormEvent) => {
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
       toast.error("Please enter the food name");
       return;
     }
 
-    if (isAddMode) {
-      const newItem: MenuItem = {
-        id: `TB-F${1000 + items.length + 1}`,
-        name: formName,
-        category: formCategory,
-        description: formDescription,
-        image: formImage,
-        price: Number(formPrice),
-        stock: Number(formStock),
-        isAvailable: formIsAvailable,
-        tags: formTags,
-        variants: formVariants,
-        addons: formAddons,
-        timeAvailability: formTimeAvailability,
-        rating: 5.0,
-        ordersCount: 0
-      };
-
-      setItems((prev) => {
-        const updated = [newItem, ...prev];
-        syncWithContext(updated);
-        return updated;
-      });
-      toast.success(`${formName} has been added to the menu!`);
-    } else {
-      // Edit mode
-      if (!activeModalItem) return;
-      setItems((prev) => {
-        const updated = prev.map((it) => {
-          if (it.id === activeModalItem.id) {
-            return {
-              ...it,
-              name: formName,
-              category: formCategory,
-              description: formDescription,
-              image: formImage,
-              price: Number(formPrice),
-              stock: Number(formStock),
-              isAvailable: formIsAvailable,
-              tags: formTags,
-              variants: formVariants,
-              addons: formAddons,
-              timeAvailability: formTimeAvailability
-            };
-          }
-          return it;
+    try {
+      if (isAddMode) {
+        await apiRequest<any>("/menu", {
+          method: "POST",
+          token,
+          body: {
+            name: formName,
+            category: formCategory,
+            description: formDescription,
+            image: formImage,
+            price: Number(formPrice),
+            stock: Number(formStock),
+            isAvailable: formIsAvailable,
+            tags: formTags,
+            variants: formVariants,
+            addons: formAddons,
+            timeAvailability: formTimeAvailability,
+          },
         });
-        syncWithContext(updated);
-        return updated;
-      });
-      toast.success(`${formName} updated successfully!`);
+        toast.success(`${formName} has been added to the menu!`);
+      } else {
+        if (!activeModalItem) return;
+        await apiRequest<any>(`/menu/${activeModalItem.id}`, {
+          method: "PUT",
+          token,
+          body: {
+            name: formName,
+            category: formCategory,
+            description: formDescription,
+            image: formImage,
+            price: Number(formPrice),
+            stock: Number(formStock),
+            isAvailable: formIsAvailable,
+            tags: formTags,
+            variants: formVariants,
+            addons: formAddons,
+            timeAvailability: formTimeAvailability,
+          },
+        });
+        toast.success(`${formName} updated successfully!`);
+      }
+
+      await fetchItems(searchTerm, selectedCategory);
+      setActiveModalItem(null);
+      setIsAddMode(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save menu item");
     }
-
-    setActiveModalItem(null);
-    setIsAddMode(false);
   };
-
-
 
   // Reorder items mock simulation
   const shiftItemOrder = (index: number, direction: "up" | "down") => {
     const nextIndex = direction === "up" ? index - 1 : index + 1;
     if (nextIndex < 0 || nextIndex >= filteredItems.length) return;
 
-    // Find absolute index of item in state array
     const absoluteIndex1 = items.findIndex((it) => it.id === filteredItems[index].id);
     const absoluteIndex2 = items.findIndex((it) => it.id === filteredItems[nextIndex].id);
 
     setItems((prev) => {
       const nextItems = [...prev];
-      // Swap elements
       const temp = nextItems[absoluteIndex1];
       nextItems[absoluteIndex1] = nextItems[absoluteIndex2];
       nextItems[absoluteIndex2] = temp;
-      
+
       syncWithContext(nextItems);
       return nextItems;
     });
@@ -432,7 +472,7 @@ export function MenuManagement() {
       className="flex flex-col gap-6"
     >
       {/* 1. Header & Page Control Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
             Menu Management
@@ -444,16 +484,8 @@ export function MenuManagement() {
         </div>
 
         {/* Global Action Tools */}
-        <div className="flex items-center flex-wrap gap-2.5">
-          <button
-            onClick={() => setReorderMode(!reorderMode)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition duration-200 cursor-pointer shadow-sm ${reorderMode
-                ? "bg-amber-500 text-white shadow-amber-500/20"
-                : "bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-              }`}
-          >
-            {reorderMode ? "Done Reordering" : "Reorder Mode"}
-          </button>
+        <div className="flex items-center gap-2.5 shrink-0">
+
 
           <button
             onClick={openAddModal}
@@ -548,20 +580,7 @@ export function MenuManagement() {
           {/* Filtering dropdowns */}
           <div className="flex gap-2">
             {/* Tag filter selector */}
-            <div className="relative min-w-[120px]">
-              <select
-                value={selectedTag}
-                onChange={(e) => setSelectedTag(e.target.value)}
-                className="w-full appearance-none pl-3.5 pr-8 py-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#71A066]"
-              >
-                <option value="All">All Tags</option>
-                <option value="Veg">Veg Only</option>
-                <option value="Spicy">Spicy Only</option>
-                <option value="Bestseller">Bestseller Only</option>
-                <option value="New">New Only</option>
-              </select>
-              <ChevronDown size={12} className="absolute right-3.5 top-3.5 text-slate-450 pointer-events-none" />
-            </div>
+
 
             {/* Time availability filter */}
             <div className="relative min-w-[120px]">
@@ -587,8 +606,8 @@ export function MenuManagement() {
               key={cat}
               onClick={() => setSelectedCategory(cat)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition duration-200 cursor-pointer shadow-sm ${selectedCategory === cat
-                  ? "bg-[#71A066] border-[#71A066] text-white"
-                  : "border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850"
+                ? "bg-[#71A066] border-[#71A066] text-white"
+                : "border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850"
                 }`}
             >
               {cat}
@@ -678,11 +697,7 @@ export function MenuManagement() {
                           <h5 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm tracking-tight leading-tight mt-0.5">{item.name}</h5>
                         </div>
 
-                        {/* Rating block */}
-                        <div className="flex items-center gap-0.5 shrink-0 text-amber-500 font-bold text-[10px]">
-                          <Star size={10} fill="currentColor" />
-                          <span>{item.rating}</span>
-                        </div>
+
                       </div>
 
                       {/* Description */}
@@ -925,20 +940,7 @@ export function MenuManagement() {
                       id="food-image-uploader"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
-                        const files = e.target.files;
-                        if (files && files.length > 0) {
-                          const file = files[0];
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            if (event.target?.result) {
-                              setFormImage(event.target.result as string);
-                              toast.success("Custom image loaded successfully!");
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
+                      onChange={handleImageUpload}
                     />
 
                     {/* Pre-seeded dynamic mock images selector */}
@@ -1049,25 +1051,7 @@ export function MenuManagement() {
                   />
                 </div>
 
-                {/* Tag Selection pills selector */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Dish Badges / Tags</label>
-                  <div className="flex gap-2">
-                    {(["Veg", "Spicy", "Bestseller", "New"] as const).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => toggleFormTag(t)}
-                        className={`px-3 py-1.5 rounded-xl font-bold border transition duration-150 cursor-pointer text-[10px] ${formTags.includes(t)
-                            ? "bg-[#71A066]/10 border-[#71A066] text-[#71A066]"
-                            : "border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850"
-                          }`}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+
 
                 {/* VARIANT SYSTEM MANAGER */}
                 <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
@@ -1264,12 +1248,7 @@ export function MenuManagement() {
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Time Availability</span>
                     <span className="font-bold text-slate-700 dark:text-slate-200 text-xs">{activeViewItem.timeAvailability}</span>
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Dish Rating</span>
-                    <span className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-0.5">
-                      <Star size={10} fill="currentColor" className="text-amber-500" /> {activeViewItem.rating}
-                    </span>
-                  </div>
+
                 </div>
 
                 {/* Dynamic Variants list */}

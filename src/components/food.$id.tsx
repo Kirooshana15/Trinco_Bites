@@ -21,7 +21,8 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useRestaurants } from "@/context/RestaurantContext";
 import { useCart } from "@/context/CartContext";
-import { isRestaurantOpen } from "@/utils/time";
+import { isRestaurantOpen, isMenuItemTimeAvailable } from "@/utils/time";
+import { toast } from "sonner";
 
 const CARD_COLORS = [
   "#D97745",
@@ -38,12 +39,12 @@ function getAutomaticOfferStatus(offer: Offer) {
   if (offer.status === "Draft") return "Draft";
 
   const now = new Date();
-  
+
   // Format dates: YYYY-MM-DD
-  const todayStr = now.getFullYear() + "-" + 
-    String(now.getMonth() + 1).padStart(2, "0") + "-" + 
+  const todayStr = now.getFullYear() + "-" +
+    String(now.getMonth() + 1).padStart(2, "0") + "-" +
     String(now.getDate()).padStart(2, "0");
-    
+
   const start = offer.startDate;
   const end = offer.endDate;
 
@@ -96,13 +97,26 @@ export function FoodDetailPage() {
   const { add } = useCart();
 
   const [regularQty, setRegularQty] = useState(1);
-  const [largeQty, setLargeQty] = useState(0);
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set());
   const [instructions, setInstructions] = useState("");
   const [isFav, setIsFav] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({});
 
-  if (!data) {
+  useEffect(() => {
+    if (data?.food && (data.food as any).variants && (data.food as any).variants.length > 0) {
+      const initial: Record<string, number> = {};
+      (data.food as any).variants.forEach((v: any, index: number) => {
+        initial[v.name] = index === 0 ? 1 : 0;
+      });
+      setVariantQuantities(initial);
+    } else {
+      setVariantQuantities({});
+      setRegularQty(1);
+    }
+  }, [data?.food?.id]);
+
+  if (!data || !isMenuItemTimeAvailable((data.food as any).timeAvailability)) {
     return (
       <div className="flex min-h-screen flex-col bg-[#F7F0E3]" style={{ fontFamily: "var(--font-body)" }}>
         <Navbar />
@@ -132,14 +146,26 @@ export function FoodDetailPage() {
     food.category.toLowerCase().includes("mojito");
 
   // Get active offer details
-  const appliedOffer = offerId
+  const rawAppliedOffer = offerId
     ? offers.find((o) => o.id === offerId && o.restaurantId === restaurant.id && getAutomaticOfferStatus(o) === "Active")
     : undefined;
+
+  const isOfferApplicable = () => {
+    if (!rawAppliedOffer) return false;
+    if (rawAppliedOffer.menuItemId && rawAppliedOffer.menuItemId !== food.id) return false;
+    if (rawAppliedOffer.categoryId && food.categoryId !== rawAppliedOffer.categoryId) return false;
+    return true;
+  };
+
+  const appliedOffer = isOfferApplicable() ? rawAppliedOffer : undefined;
 
   // Calculate discount percentage
   let discountPercent = 0;
   if (appliedOffer) {
-    if (appliedOffer.discountBadge.includes("50%")) {
+    const pctMatch = appliedOffer.discountBadge.match(/(\d+)%/);
+    if (pctMatch) {
+      discountPercent = parseInt(pctMatch[1], 10);
+    } else if (appliedOffer.discountBadge.includes("50%")) {
       discountPercent = 50;
     } else if (appliedOffer.discountBadge.includes("20%")) {
       discountPercent = 20;
@@ -149,62 +175,18 @@ export function FoodDetailPage() {
   const discountMultiplier = (100 - discountPercent) / 100;
   const originalBasePrice = food.price;
   const basePrice = originalBasePrice * discountMultiplier;
-  const largePrice = basePrice * 1.5;
-
-  const getCategoryExtras = (category: string, name: string) => {
-    const cat = category.toLowerCase();
-    const n = name.toLowerCase();
-    let extras = [];
-
-    const getProtein = (text: string) => {
-      if (text.includes("chicken")) return { name: "Extra Chicken", price: 350 };
-      if (text.includes("beef")) return { name: "Extra Beef", price: 400 };
-      if (text.includes("prawn")) return { name: "Extra Prawn", price: 450 };
-      if (text.includes("seafood")) return { name: "Extra Seafood", price: 450 };
-      if (text.includes("mutton")) return { name: "Extra Mutton", price: 500 };
-      return null;
-    };
-
-    const protein = getProtein(n);
-    if (protein) extras.push(protein);
-
-    if (cat.includes("burger")) {
-      extras.push(
-        { name: "Extra Cheese", price: 150 },
-        { name: "Extra Patty", price: 300 },
-        { name: "Fried Egg", price: 100 },
-        { name: "Bacon Strip", price: 250 }
-      );
-    } else if (cat.includes("pizza")) {
-      extras.push(
-        { name: "Extra Cheese", price: 250 },
-        { name: "Black Olives", price: 150 },
-        { name: "Mushroom", price: 150 },
-        { name: "Pepperoni", price: 300 }
-      );
-    } else if (cat.includes("drink") || cat.includes("juice") || cat.includes("mojito")) {
-      extras.push(
-        { name: "Extra Mint", price: 50 },
-        { name: "Extra Ice", price: 0 },
-        { name: "Less Sugar", price: 0 },
-        { name: "Fresh Fruit", price: 100 }
-      );
-    } else {
-      extras.push(
-        { name: "Extra Egg", price: 150 },
-        { name: "Cheese", price: 200 },
-        { name: "Spicy Gravy", price: 100 }
-      );
-    }
-
-    return extras;
-  };
 
   const currentExtras = (food as any).addons && (food as any).addons.length > 0
     ? (food as any).addons
-    : getCategoryExtras(food.category, food.name);
+    : [];
 
-  const variants = restaurant.menu.filter((m) => m.category === food.category && (m as any).isAvailable !== false && (m as any).stock !== 0);
+  const variants = restaurant.menu.filter(
+    (m) =>
+      (m.categoryId === food.categoryId || m.category.toLowerCase() === food.category.toLowerCase()) &&
+      (m as any).isAvailable !== false &&
+      (m as any).stock !== 0 &&
+      isMenuItemTimeAvailable(m.timeAvailability)
+  );
   const currentIndex = variants.findIndex((v) => v.id === food.id);
 
   const navigateToVariant = (index: number) => {
@@ -224,40 +206,24 @@ export function FoodDetailPage() {
     return acc + (extra?.price || 0);
   }, 0);
 
-  const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (food && (food as any).variants && (food as any).variants.length > 0) {
-      const initial: Record<string, number> = {};
-      (food as any).variants.forEach((v: any, index: number) => {
-        initial[v.name] = index === 0 ? 1 : 0;
-      });
-      setVariantQuantities(initial);
-    } else {
-      setVariantQuantities({});
-      setRegularQty(1);
-      setLargeQty(0);
-    }
-  }, [food.id]);
-
   const hasCustomVariants = (food as any).variants && (food as any).variants.length > 0;
-  
+
   const customVariantsCount = hasCustomVariants
     ? Object.values(variantQuantities).reduce((a, b) => a + b, 0)
     : 0;
-    
+
   const customVariantsPrice = hasCustomVariants
     ? (food as any).variants.reduce((acc: number, v: any) => {
-        const qty = variantQuantities[v.name] || 0;
-        const discountedVariantPrice = v.price * discountMultiplier;
-        return acc + qty * discountedVariantPrice;
-      }, 0)
+      const qty = variantQuantities[v.name] || 0;
+      const discountedVariantPrice = v.price * discountMultiplier;
+      return acc + qty * discountedVariantPrice;
+    }, 0)
     : 0;
 
-  const totalItems = hasCustomVariants ? customVariantsCount : (regularQty + largeQty);
+  const totalItems = hasCustomVariants ? customVariantsCount : regularQty;
   const totalPrice = hasCustomVariants
     ? customVariantsPrice + extrasTotal * totalItems
-    : (regularQty * basePrice + largeQty * largePrice + extrasTotal * totalItems);
+    : (regularQty * basePrice + extrasTotal * totalItems);
 
   const uniqueCategories = Array.from(
     new Set(restaurant.menu.map((m) => m.category))
@@ -295,17 +261,13 @@ export function FoodDetailPage() {
           appliedOffer,
         });
       }
-      if (largeQty > 0) {
-        add(food, restaurant.id, largeQty, {
-          selectedSize: "Large",
-          selectedExtras: extrasObjects,
-          instructions,
-          customPrice: largePrice + extrasTotal,
-          appliedOffer,
-        });
-      }
     }
-    navigate({ to: "/cart" });
+    toast.success(`${food.name} added to cart!`);
+    if (restaurant && restaurant.id) {
+      navigate({ to: "/restaurant/$id", params: { id: restaurant.id } });
+    } else {
+      navigate({ to: "/home" });
+    }
   };
 
   const toggleExtra = (name: string) => {
@@ -359,7 +321,13 @@ export function FoodDetailPage() {
 
               {/* Back button */}
               <button
-                onClick={() => window.history.back()}
+                onClick={() => {
+                  if (restaurant && restaurant.id) {
+                    navigate({ to: "/restaurant/$id", params: { id: restaurant.id } });
+                  } else {
+                    window.history.back();
+                  }
+                }}
                 className="absolute top-4 left-4 sm:top-6 sm:left-6 z-30 h-10 w-10 sm:h-11 sm:w-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/35 transition-all border border-white/20 shadow-lg"
               >
                 <ArrowLeft size={20} />
@@ -405,13 +373,13 @@ export function FoodDetailPage() {
                   className="absolute inset-0 rounded-full border-[3px] border-dashed border-white/30 animate-spin"
                   style={{ animationDuration: "20s", margin: "-18px" }}
                 />
-                <div className="h-48 w-48 sm:h-64 sm:w-64 md:h-80 md:w-80 lg:h-[380px] lg:w-[380px] rounded-full shadow-[0_24px_64px_rgba(0,0,0,0.35)] overflow-hidden border-[10px] border-white/25">
+                <div className="h-48 w-48 sm:h-64 sm:w-64 md:h-80 md:w-80 lg:h-[380px] lg:w-[380px] rounded-full shadow-[0_24px_64px_rgba(0,0,0,0.35)] overflow-hidden border-[10px] border-white/25 bg-white flex items-center justify-center">
                   <motion.img
                     layoutId={`card-image-${food.id}`}
                     transition={{ type: "spring", stiffness: 220, damping: 24 }}
                     src={food.image}
                     alt={food.name}
-                    className="h-full w-full object-cover scale-110"
+                    className="h-full w-full object-contain p-4 sm:p-6 md:p-8 lg:p-10 transition-transform duration-500 hover:scale-105"
                   />
                 </div>
               </motion.div>
@@ -431,8 +399,8 @@ export function FoodDetailPage() {
                       key={i}
                       onClick={() => navigateToVariant(i)}
                       className={`cursor-pointer rounded-full transition-all duration-300 ${i === currentIndex
-                          ? "w-7 h-2 bg-white"
-                          : "w-2 h-2 bg-white/35 hover:bg-white/60"
+                        ? "w-7 h-2 bg-white"
+                        : "w-2 h-2 bg-white/35 hover:bg-white/60"
                         }`}
                     />
                   ))}
@@ -451,10 +419,6 @@ export function FoodDetailPage() {
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-[0.18em]">
                     {food.category}
-                  </span>
-                  <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-amber-50 text-amber-500 text-xs font-bold">
-                    <Star size={11} fill="currentColor" />
-                    {food.rating}
                   </span>
                   {food.popular && (
                     <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-red-50 text-red-500 text-[9px] font-black uppercase tracking-wider">
@@ -540,7 +504,7 @@ export function FoodDetailPage() {
                       <p className="mt-1 text-2xl md:text-3xl font-black leading-none text-slate-900">Rs. {basePrice.toLocaleString()}</p>
                     )}
                     <p className="mt-2 text-xs text-slate-500">
-                      {isDrink ? "Single serve with optional add-ons." : "Choose your preferred portion and extras below."}
+                      {(isDrink && !hasCustomVariants) ? "Single serve with optional add-ons." : "Choose your preferred portion and extras below."}
                     </p>
                   </div>
                 </div>
@@ -555,20 +519,9 @@ export function FoodDetailPage() {
 
               {/* ── SECTION 1: Portions / Quantity ── */}
               <section className="py-2">
-                <SectionLabel number={1} label={isDrink ? "Quantity" : "Choose Portion"} />
+                <SectionLabel number={1} label={hasCustomVariants ? "Choose Portion" : "Quantity"} />
 
-                {isDrink ? (
-                  <PortionRow
-                    label="Standard"
-                    sublabel="Regular"
-                    price={basePrice}
-                    qty={regularQty}
-                    active={regularQty > 0}
-                    onDec={() => restaurantOpen && setRegularQty(Math.max(1, regularQty - 1))}
-                    onInc={() => restaurantOpen && setRegularQty(regularQty + 1)}
-                    disabled={!restaurantOpen}
-                  />
-                                 ) : hasCustomVariants ? (
+                {hasCustomVariants ? (
                   <div className="flex flex-col gap-3">
                     {(food as any).variants.map((v: any) => {
                       const qty = variantQuantities[v.name] || 0;
@@ -579,6 +532,7 @@ export function FoodDetailPage() {
                           label={v.name}
                           sublabel={v.name === "Regular" ? "Standard" : "Custom Portion"}
                           price={discountedVariantPrice}
+                          originalPrice={v.price}
                           qty={qty}
                           active={qty > 0}
                           onDec={() => {
@@ -601,68 +555,59 @@ export function FoodDetailPage() {
                     })}
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    <PortionRow
-                      label="Regular"
-                      sublabel="Standard"
-                      price={basePrice}
-                      qty={regularQty}
-                      active={regularQty > 0}
-                      onDec={() => restaurantOpen && setRegularQty(Math.max(0, regularQty - 1))}
-                      onInc={() => restaurantOpen && setRegularQty(regularQty + 1)}
-                      disabled={!restaurantOpen}
-                    />
-                    <PortionRow
-                      label="Large"
-                      sublabel="Bigger"
-                      price={largePrice}
-                      qty={largeQty}
-                      active={largeQty > 0}
-                      onDec={() => restaurantOpen && setLargeQty(Math.max(0, largeQty - 1))}
-                      onInc={() => restaurantOpen && setLargeQty(largeQty + 1)}
-                      disabled={!restaurantOpen}
-                    />
-                  </div>
+                  <PortionRow
+                    label="Standard"
+                    sublabel="Standard Portion"
+                    price={basePrice}
+                    originalPrice={originalBasePrice}
+                    qty={regularQty}
+                    active={regularQty > 0}
+                    onDec={() => restaurantOpen && setRegularQty(Math.max(1, regularQty - 1))}
+                    onInc={() => restaurantOpen && setRegularQty(regularQty + 1)}
+                    disabled={!restaurantOpen}
+                  />
                 )}
               </section>
 
               {/* ── SECTION 2: Extras ── */}
-              <section className="py-2">
-                <SectionLabel number={2} label="Add Extras" />
-                <div className="flex flex-wrap gap-2.5">
-                  {currentExtras.map((extra: { name: string; price: number }) => {
-                    const active = selectedExtras.has(extra.name);
-                    return (
-                      <button
-                        key={extra.name}
-                        disabled={!restaurantOpen}
-                        onClick={() => toggleExtra(extra.name)}
-                        className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl border-2 transition-all duration-200 text-sm font-bold ${active
+              {currentExtras.length > 0 && (
+                <section className="py-2">
+                  <SectionLabel number={2} label="Add Extras" />
+                  <div className="flex flex-wrap gap-2.5">
+                    {currentExtras.map((extra: { name: string; price: number }) => {
+                      const active = selectedExtras.has(extra.name);
+                      return (
+                        <button
+                          key={extra.name}
+                          disabled={!restaurantOpen}
+                          onClick={() => toggleExtra(extra.name)}
+                          className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl border-2 transition-all duration-200 text-sm font-bold ${active
                             ? "border-orange-500 bg-orange-50 text-orange-700 shadow-sm shadow-orange-200"
                             : "border-slate-100 bg-transparent text-slate-600 hover:border-slate-300 hover:bg-white/40"
-                          }`}
-                      >
-                        <span
-                          className={`flex items-center justify-center h-5 w-5 rounded-lg transition-all ${active
-                              ? "bg-orange-500 text-white"
-                              : "bg-white border-2 border-slate-200 text-transparent group-hover:border-slate-300"
                             }`}
                         >
-                          <Check size={11} strokeWidth={4} />
-                        </span>
-                        {extra.name}
-                        <span className="text-[10px] font-black text-slate-400 ml-0.5">
-                          {extra.price === 0 ? "Free" : `+Rs.${extra.price}`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
+                          <span
+                            className={`flex items-center justify-center h-5 w-5 rounded-lg transition-all ${active
+                              ? "bg-orange-500 text-white"
+                              : "bg-white border-2 border-slate-200 text-transparent group-hover:border-slate-300"
+                              }`}
+                          >
+                            <Check size={11} strokeWidth={4} />
+                          </span>
+                          {extra.name}
+                          <span className="text-[10px] font-black text-slate-400 ml-0.5">
+                            {extra.price === 0 ? "Free" : `+Rs.${extra.price}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               {/* ── SECTION 3: Instructions ── */}
               <section className="py-2">
-                <SectionLabel number={3} label="Special Instructions" />
+                <SectionLabel number={currentExtras.length > 0 ? 3 : 2} label="Special Instructions" />
                 <div className="relative">
                   <textarea
                     value={instructions}
@@ -697,12 +642,12 @@ export function FoodDetailPage() {
                     </span>
                     {totalItems > 1 && (
                       <span className="mt-0.5 text-[10px] font-semibold text-slate-400">
-                        {[
-                          regularQty > 0 && `${regularQty} Regular`,
-                          largeQty > 0 && `${largeQty} Large`,
-                        ]
-                          .filter(Boolean)
-                          .join(" + ")}
+                        {hasCustomVariants
+                          ? Object.entries(variantQuantities)
+                              .filter(([_, qty]) => qty > 0)
+                              .map(([name, qty]) => `${qty} ${name}`)
+                              .join(" + ")
+                          : `${totalItems} Standard`}
                       </span>
                     )}
                   </div>
@@ -710,11 +655,10 @@ export function FoodDetailPage() {
                   <button
                     disabled={totalItems === 0 || !restaurantOpen}
                     onClick={handleAddToCart}
-                    className={`inline-flex shrink-0 items-center justify-center gap-1.5 md:gap-2.5 rounded-2xl px-3 sm:px-4 md:px-7 py-3 md:py-3.5 font-black text-[13px] md:text-base text-white transition-all ${
-                      totalItems > 0 && restaurantOpen
+                    className={`inline-flex shrink-0 items-center justify-center gap-1.5 md:gap-2.5 rounded-2xl px-3 sm:px-4 md:px-7 py-3 md:py-3.5 font-black text-[13px] md:text-base text-white transition-all ${totalItems > 0 && restaurantOpen
                         ? "bg-orange-600 hover:bg-orange-700 hover:scale-[1.02] active:scale-[0.97] shadow-lg shadow-orange-600/25"
                         : "bg-slate-200 cursor-not-allowed opacity-60"
-                    }`}
+                      }`}
                   >
                     {restaurantOpen ? "Add to Cart" : "Restaurant Closed"}
                     <ShoppingBag size={18} strokeWidth={2.5} />
@@ -756,6 +700,7 @@ function PortionRow({
   label,
   sublabel,
   price,
+  originalPrice,
   qty,
   active,
   onDec,
@@ -765,6 +710,7 @@ function PortionRow({
   label: string;
   sublabel: string;
   price: number;
+  originalPrice?: number;
   qty: number;
   active: boolean;
   onDec: () => void;
@@ -774,8 +720,8 @@ function PortionRow({
   return (
     <div
       className={`flex items-center justify-between rounded-[24px] border-2 px-3.5 py-3 sm:px-5 sm:py-4 transition-all duration-200 ${active
-          ? "border-orange-400 bg-[linear-gradient(135deg,rgba(255,243,227,0.95),rgba(255,255,255,0.98))] shadow-[0_12px_24px_rgba(249,160,63,0.12)]"
-          : "border-transparent bg-transparent hover:border-slate-200"
+        ? "border-orange-400 bg-[linear-gradient(135deg,rgba(255,243,227,0.95),rgba(255,255,255,0.98))] shadow-[0_12px_24px_rgba(249,160,63,0.12)]"
+        : "border-transparent bg-transparent hover:border-slate-200"
         }`}
     >
       <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1 mr-2">
@@ -786,9 +732,17 @@ function PortionRow({
           {label[0]}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-black text-slate-900 text-xs sm:text-sm leading-tight">{label} Portion</p>
+          <p className="font-black text-slate-900 text-xs sm:text-sm leading-tight">{label}</p>
           <p className="text-[10px] sm:text-xs text-slate-400 font-medium mt-0.5 leading-tight">
-            <span className="font-bold text-slate-700">Rs. {price.toLocaleString()}</span> · {sublabel}
+            {originalPrice && originalPrice > price ? (
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="font-bold text-emerald-600">Rs. {price.toLocaleString()}</span>
+                <span className="text-slate-400 line-through text-[9px] sm:text-[10px]">Rs. {originalPrice.toLocaleString()}</span>
+              </span>
+            ) : (
+              <span className="font-bold text-slate-700">Rs. {price.toLocaleString()}</span>
+            )}
+            {" "}· {sublabel}
           </p>
         </div>
       </div>

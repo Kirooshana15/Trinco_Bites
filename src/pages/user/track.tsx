@@ -337,7 +337,7 @@ export function Track() {
                         </p>
                       </div>
 
-                      {item.appliedOffer?.id === "O-205" && (
+                      {(item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") && (
                         <div className="mt-1.5 p-2 rounded-lg bg-emerald-50/60 border border-emerald-100/50 flex items-center justify-between text-[11px] text-emerald-800 font-bold">
                           <span className="flex items-center gap-1">
                             🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]

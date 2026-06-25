@@ -3,7 +3,7 @@ import { MapPin, Clock, Star, TrendingUp, ChevronRight } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type Restaurant } from "@/utils/data/mock";
 import { useRestaurants } from "@/context/RestaurantContext";
-import { isRestaurantOpen } from "@/utils/time";
+import { isRestaurantOpen, getTodayHours } from "@/utils/time";
 
 import { C } from "@/utils/theme";
 
@@ -11,9 +11,9 @@ export function PopularNearYou() {
   const { restaurants } = useRestaurants();
   const navigate = useNavigate();
 
-  // Filter restaurants for "Popular" logic (rating >= 4.5)
+  // Filter restaurants for "Popular" logic (rating >= 4.5), excluding unpublished/vacation ones
   const popular = restaurants
-    .filter(r => r.rating >= 4.5)
+    .filter(r => r.rating >= 4.5 && r.showPublicly !== false && r.vacationMode !== true)
     .slice(0, 4);
 
   return (
@@ -93,7 +93,7 @@ export function PopularNearYou() {
                 <p className="text-xs font-medium mb-1.5 opacity-60 truncate">{r.category} • {r.deliveryTime}</p>
                 
                 <p className="text-[11px] font-bold text-brand-brown mb-3 flex items-center gap-1">
-                  <span>🕒 Hours: {r.openingTime} - {r.closingTime}</span>
+                  <span>🕒 Hours: {getTodayHours(r)}</span>
                 </p>
 
                 <div className="flex items-center gap-2">

@@ -4,9 +4,6 @@ import {
   MapPin,
   ChevronDown,
   SlidersHorizontal,
-  Flame,
-  Star,
-  Clock,
   ShieldCheck,
   ArrowRight,
   Leaf,
@@ -28,9 +25,41 @@ import { TopRatedRestaurants } from "@/components/TopRatedRestaurants";
 import { OffersBannerCarousel } from "@/components/OffersBannerCarousel";
 import { PopularNearYou } from "@/components/PopularNearYou";
 
-import { categories, type Restaurant } from "@/utils/data/mock";
+import { type Restaurant, categories as staticCategories } from "@/utils/data/mock";
+import { apiRequest } from "@/utils/api";
+
+import catKoththu from "@/assets/kottu.png";
+import catFriedRice from "@/assets/fried rice.png";
+import catSeafood from "@/assets/seafood.png";
+import catBriyani from "@/assets/Briyani.png";
+import catBurger from "@/assets/burgur.png";
+import catPizza from "@/assets/Pizza.png";
+import catSoftDrinks from "@/assets/soft drink.png";
+import catJuice from "@/assets/Juice.png";
+import catMojito from "@/assets/Mojito.png";
+import catMilkshake from "@/assets/Milkshake.png";
+import catDesserts from "@/assets/Desserts.png";
+import catNoodels from "@/assets/noodles.png";
+import riceandCurry from "@/assets/rice and curry.png";
+
+const getCategoryImage = (name: string): string => {
+  const n = name.trim().toLowerCase();
+  if (n.includes("koththu") || n.includes("kottu")) return catKoththu;
+  if (n.includes("noodles") || n.includes("noodels")) return catNoodels;
+  if (n.includes("fried rice")) return catFriedRice;
+  if (n.includes("seafood") || n.includes("fish")) return catSeafood;
+  if (n.includes("briyani") || n.includes("biryani")) return catBriyani;
+  if (n.includes("burger")) return catBurger;
+  if (n.includes("pizza")) return catPizza;
+  if (n.includes("soft drink") || n.includes("drink") || n.includes("beverage")) return catSoftDrinks;
+  if (n.includes("juice")) return catJuice;
+  if (n.includes("mojito")) return catMojito;
+  if (n.includes("milkshake")) return catMilkshake;
+  if (n.includes("dessert")) return catDesserts;
+  if (n.includes("rice") && n.includes("curry")) return riceandCurry;
+  return catFriedRice;
+};
 import { useRestaurants } from "@/context/RestaurantContext";
-import { isRestaurantOpen } from "@/utils/time";
 import homeBack from "@/assets/home-back.jpg";
 
 import { C } from "@/utils/theme";
@@ -45,55 +74,7 @@ const extraFilters = [
 
 type ExtraFilter = (typeof extraFilters)[number] | "All";
 
-/* ── Stat Badge ─────────────────────────────────────────────────── */
-function StatBadge({
-  icon: Icon,
-  value,
-  label,
-  delay,
-}: {
-  icon: React.ElementType;
-  value: string;
-  label: string;
-  delay: number;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4 }}
-      className="flex items-center gap-1.5 sm:gap-3 px-2 py-2 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl flex-1 sm:flex-initial min-w-0"
-      style={{
-        background: "rgba(255,252,245,0.12)",
-        backdropFilter: "blur(12px)",
-        border: "1px solid rgba(248,221,164,0.20)",
-      }}
-    >
-      <div
-        className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg sm:rounded-xl grid place-items-center flex-shrink-0"
-        style={{ background: "rgba(212,81,19,0.35)" }}
-      >
-        <Icon size={12} className="sm:w-[13px] sm:h-[13px]" style={{ color: C.cream }} />
-      </div>
 
-      <div className="flex flex-col min-w-0">
-        <p
-          className="text-[11px] sm:text-sm font-black leading-none"
-          style={{ color: C.cream }}
-        >
-          {value}
-        </p>
-
-        <p
-          className="text-[8px] sm:text-[10px] mt-0.5 leading-none opacity-60"
-          style={{ color: C.cream }}
-        >
-          {label}
-        </p>
-      </div>
-    </motion.div>
-  );
-}
 
 /* ── Category Chip ──────────────────────────────────────────────── */
 function CatChip({
@@ -202,14 +183,8 @@ function FilterChip({
   );
 }
 
-function parseDeliveryMinutes(deliveryTime: string) {
-  const values = deliveryTime.match(/\d+/g)?.map(Number) ?? [];
-  return values.length > 0 ? Math.max(...values) : Number.POSITIVE_INFINITY;
-}
-
-/* ── Home ───────────────────────────────────────────────────────── */
 export function Home() {
-  const { restaurants, loading, refetch } = useRestaurants();
+  const { filteredRestaurants: list, filteredLoading: loading, fetchFiltered, offers } = useRestaurants();
   const navigate = useNavigate();
   const { selectedLocation } = useLocationState();
   const { searchQuery, setSearchQuery } = useSearch();
@@ -219,13 +194,50 @@ export function Home() {
   const [expandedFilter, setExpandedFilter] = useState<ExtraFilter | null>(null);
   const [dietaryPlan, setDietaryPlan] = useState<"All" | "Veg" | "Non-Veg" | "Halal">("All");
 
+  const hasActiveFilters = searchQuery.trim() !== "" || cat !== "All" || selectedFilters.length > 0 || dietaryPlan !== "All" || minRating > 0;
+
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      refetch(searchQuery);
+      const filters: any = {};
+
+      if (searchQuery.trim()) {
+        filters.search = searchQuery.trim();
+      }
+
+      if (cat && cat !== "All") {
+        filters.category = cat;
+      }
+
+      if (selectedFilters.includes("Open Now")) {
+        filters.openNow = true;
+      }
+
+      if (selectedFilters.includes("Under 30 min")) {
+        filters.under30 = true;
+      }
+
+      if (selectedFilters.includes("With Offers")) {
+        filters.withOffers = true;
+      }
+
+      if (selectedFilters.includes("Highest rated")) {
+        filters.sortBy = "rating";
+        filters.sortOrder = "desc";
+      }
+
+      if (selectedFilters.includes("Rating") && minRating > 0) {
+        filters.minRating = minRating;
+      }
+
+      if (dietaryPlan !== "All") {
+        filters.dietary = dietaryPlan.toUpperCase().replace("-", "_");
+      }
+
+      fetchFiltered(filters);
     }, 350);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, refetch]);
+  }, [searchQuery, cat, selectedFilters, minRating, dietaryPlan, fetchFiltered]);
 
   const toggleFilter = (filter: ExtraFilter) => {
     if (filter === "All") {
@@ -251,85 +263,17 @@ export function Home() {
   };
 
   const handleBannerCtaClick = (bannerId: string) => {
-    if (bannerId === "fallback-1") {
+    const offer = offers.find(o => o.id === bannerId);
+    if (offer) {
       navigate({
         to: "/restaurant/$id",
-        params: { id: "burger-co" },
-        search: { offer: "O-204" }
+        params: { id: offer.restaurantId },
+        search: { offer: offer.id }
       });
-    } else if (bannerId === "fallback-2") {
-      navigate({
-        to: "/restaurant/$id",
-        params: { id: "burger-co" },
-        search: { offer: "O-205" }
-      });
+    } else {
+      navigate({ to: "/home" });
     }
   };
-
-  const list = useMemo(
-    () => {
-      let filtered = restaurants.filter(
-        (r) =>
-          (cat === "All" || r.category === cat) &&
-          r.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-
-      filtered = filtered.filter((restaurant) => {
-        const matchesRating = restaurant.rating >= minRating;
-
-        const isUnder30Active = selectedFilters.includes("Under 30 min");
-        if (isUnder30Active && parseDeliveryMinutes(restaurant.deliveryTime) > 30) {
-          return false;
-        }
-
-        if (selectedFilters.includes("Open Now") && !isRestaurantOpen(restaurant)) {
-          return false;
-        }
-
-        if (dietaryPlan === "Veg") {
-          const hasVeg = restaurant.menu.some(item =>
-            item.name.toLowerCase().includes("veg") ||
-            item.name.toLowerCase().includes("paneer") ||
-            item.category.toLowerCase().includes("veg")
-          );
-          if (!hasVeg) return false;
-        } else if (dietaryPlan === "Non-Veg") {
-          const hasNonVeg = restaurant.menu.some(item =>
-            item.name.toLowerCase().includes("chicken") ||
-            item.name.toLowerCase().includes("beef") ||
-            item.name.toLowerCase().includes("mutton") ||
-            item.name.toLowerCase().includes("fish") ||
-            item.name.toLowerCase().includes("prawn") ||
-            item.name.toLowerCase().includes("seafood")
-          );
-          if (!hasNonVeg) return false;
-        } else if (dietaryPlan === "Halal") {
-          const isHalal = restaurant.name.toLowerCase().includes("halal") ||
-            restaurant.category.toLowerCase().includes("halal") ||
-            restaurant.menu.some(item => item.name.toLowerCase().includes("halal"));
-          if (!isHalal) return false;
-        }
-
-        const isRatingActive = selectedFilters.includes("Rating");
-        if (isRatingActive && restaurant.rating < 4.5 && minRating === 0) {
-          return false;
-        }
-
-        if (selectedFilters.includes("With Offers") && !restaurant.hasOffer) {
-          return false;
-        }
-
-        return matchesRating;
-      });
-
-      if (selectedFilters.includes("Highest rated")) {
-        filtered = [...filtered].sort((a, b) => b.rating - a.rating);
-      }
-
-      return filtered;
-    },
-    [restaurants, searchQuery, cat, selectedFilters, minRating, dietaryPlan]
-  );
 
   return (
     <div
@@ -450,28 +394,7 @@ export function Home() {
               </motion.div>
             </div>
 
-            <div className="mt-8 flex items-center justify-between sm:justify-start gap-1.5 sm:gap-6">
-              <StatBadge
-                icon={Flame}
-                value="30+"
-                label="Restaurants"
-                delay={0.4}
-              />
 
-              <StatBadge
-                icon={Clock}
-                value="25m"
-                label="Avg delivery"
-                delay={0.5}
-              />
-
-              <StatBadge
-                icon={Star}
-                value="4.8"
-                label="Avg rating"
-                delay={0.6}
-              />
-            </div>
           </div>
         </section>
 
@@ -488,7 +411,7 @@ export function Home() {
 
           {/* Emoji category scroll */}
           <div className="flex gap-8 overflow-x-auto pt-3 pb-5 px-2" style={{ scrollbarWidth: "none" }}>
-            {categories.map((c) => (
+            {staticCategories.map((c) => (
               <CatChip
                 key={c.name}
                 label={c.name}
@@ -548,20 +471,20 @@ export function Home() {
         </section>
 
         {/* 4. ⭐ TOP RATED RESTAURANTS */}
-        {!searchQuery.trim() && <TopRatedRestaurants />}
+        {!hasActiveFilters && <TopRatedRestaurants />}
 
         {/* 5. 📍 POPULAR NEAR YOU */}
-        {!searchQuery.trim() && <PopularNearYou />}
+        {!hasActiveFilters && <PopularNearYou />}
 
         {/* 8. 🥘 ALL RESTAURANTS GRID (Filtered) */}
-        <section id="all-restaurants" className={`mx-auto max-w-6xl px-4 pb-24 pt-16 ${searchQuery.trim() ? "" : "mt-20 border-t border-[rgba(129,52,5,0.06)]"}`}>
+        <section id="all-restaurants" className={`mx-auto max-w-6xl px-4 pb-24 pt-16 ${hasActiveFilters ? "" : "mt-20 border-t border-[rgba(129,52,5,0.06)]"}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
               <h2 className="text-3xl font-black mb-2" style={{ color: C.brown }}>
-                {searchQuery.trim() ? "Search Results" : "All Restaurants"}
+                {searchQuery.trim() ? "Search Results" : hasActiveFilters ? "Filtered Restaurants" : "All Restaurants"}
               </h2>
               <p className="text-sm font-medium opacity-60">
-                {searchQuery.trim() ? `Showing matches for "${searchQuery}"` : "Hand-picked collection of top local eateries"}
+                {searchQuery.trim() ? `Showing matches for "${searchQuery}"` : hasActiveFilters ? "Showing restaurants matching your filters" : "Hand-picked collection of top local eateries"}
               </p>
             </div>
 

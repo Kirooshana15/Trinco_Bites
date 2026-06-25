@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { ShoppingBag, ChevronRight, MapPin, Clock, ArrowLeft, RefreshCw } from "lucide-react";
+import { ShoppingBag, ChevronRight, MapPin, Clock, ArrowLeft, RefreshCw, Star } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
@@ -8,13 +8,111 @@ import { useNavigate } from "@tanstack/react-router";
 import { useOrders, type OrderRecord } from "@/context/OrderContext";
 import { useCart } from "@/context/CartContext";
 import { getCartItemPrices, formatPrice } from "@/utils/pricing";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { apiRequest } from "@/utils/api";
+
+function OrderReviewSection({ orderId, status, token }: { orderId: string; status: string; token: string | null }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [review, setReview] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadReview = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const data = await apiRequest<any>(`/reviews/order/${orderId}`, { token }).catch(() => null);
+      setReview(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && !review) {
+      loadReview();
+    }
+  }, [isOpen]);
+
+  if (status !== "Delivered") return null;
+
+  return (
+    <div className="border-t border-[#F8DDA4]/25 pt-3 mt-2.5 text-left">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-xs font-black text-[#D45113] hover:text-[#813405] transition flex items-center gap-1 cursor-pointer"
+      >
+        {isOpen ? "▼ Hide Review Details" : "▶ View Review & Restaurant Reply"}
+      </button>
+
+      {isOpen && (
+        <div className="mt-3 bg-[#FAF7F2] p-4 rounded-2xl border border-[#F8DDA4]/30 space-y-3 shadow-inner">
+          {loading ? (
+            <p className="text-[11px] text-[#813405]/50 font-bold animate-pulse">Loading review details...</p>
+          ) : review ? (
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex gap-0.5">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Star
+                      key={i}
+                      size={12}
+                      fill={i < review.rating ? "#D45113" : "none"}
+                      className={i < review.rating ? "text-[#D45113]" : "text-[#D45113]/20"}
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] text-[#813405]/45 font-bold">Review Date: {review.date}</span>
+              </div>
+              <p className="text-xs text-[#813405] font-bold leading-relaxed">{review.comment}</p>
+
+              {review.images && review.images.length > 0 && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {review.images.map((imgUrl: string, idx: number) => (
+                    <img
+                      key={idx}
+                      src={imgUrl}
+                      alt="Review food"
+                      className="w-12 h-12 rounded-lg object-cover border border-[#813405]/10 shadow-sm"
+                    />
+                  ))}
+                </div>
+              )}
+
+              {review.replies && review.replies.length > 0 ? (
+                <div className="mt-3 p-3 bg-white rounded-xl border border-[#71A066]/20 space-y-1 shadow-sm">
+                  <p className="text-[10px] font-black text-[#71A066] uppercase tracking-wider">Restaurant Reply:</p>
+                  <p className="text-xs text-[#813405]/85 font-semibold leading-relaxed">{review.replies[0].text}</p>
+                  <p className="text-[9px] text-[#813405]/40 font-bold mt-1">Replied on: {review.replies[0].timestamp}</p>
+                </div>
+              ) : (
+                <p className="text-[10px] text-[#813405]/40 font-bold italic mt-2">No restaurant reply yet.</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 flex-wrap py-1">
+              <span className="text-xs font-bold text-[#813405]/50">You haven't reviewed this order yet.</span>
+              <Link
+                to={`/rate?orderId=${orderId}`}
+                className="px-3.5 py-1.5 bg-[#D45113] hover:bg-[#813405] text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition shadow-sm"
+              >
+                ⭐ Rate Order
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Orders() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, token } = useAuth();
   const navigate = useNavigate();
-  const { orders } = useOrders();
+  const { orders, fetchOrders } = useOrders();
   const { clear: clearCart, add: addToCart } = useCart();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -22,19 +120,28 @@ export function Orders() {
     }
   }, [isAuthenticated, navigate]);
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchOrders();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleReorder = (order: OrderRecord) => {
     clearCart();
     order.items.forEach((item) => {
+      const itemId = (item as any).menuItemId || item.id;
       addToCart(
         {
-          id: item.id,
+          id: itemId,
           name: item.name,
           price: item.price,
-          image: item.image,
-          description: item.description,
-          rating: item.rating,
-          category: item.category,
-          popular: item.popular,
+          image: item.image || "",
+          description: (item as any).menuItem?.description || item.description || "",
+          category: (item as any).menuItem?.category?.name || item.category || "",
+          popular: (item as any).menuItem?.popular || item.popular || false,
           discount: item.discount,
         },
         item.restaurantId,
@@ -78,6 +185,15 @@ export function Orders() {
               <h1 className="text-2xl font-black text-[#813405]">My Orders</h1>
             </div>
           </div>
+
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="w-9 h-9 rounded-2xl bg-white border border-[#EADBC8] flex items-center justify-center hover:bg-white/90 disabled:opacity-50 transition shadow-sm cursor-pointer text-[#813405]"
+            title="Refresh orders"
+          >
+            <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+          </button>
         </div>
 
         {orders.length === 0 ? (
@@ -173,7 +289,7 @@ export function Orders() {
                               <span>{formatPrice(prices.itemTotal)}</span>
                             </div>
                             
-                            {item.appliedOffer?.id === "O-205" && (
+                            {(item.appliedOffer?.type === "BUY_ONE_GET_ONE" || item.appliedOffer?.id === "O-205") && (
                               <div className="mt-1 p-1.5 rounded bg-emerald-50/40 flex items-center justify-between text-[10px] text-emerald-850 font-bold">
                                 <span>🎁 {item.quantity}x {item.name} ({item.selectedSize || "Regular"}) [FREE BOGO]</span>
                                 <span>Rs 0</span>
@@ -219,6 +335,7 @@ export function Orders() {
                         </button>
                       </div>
                     </div>
+                    <OrderReviewSection orderId={order.id} status={order.status} token={token} />
                   </div>
                 );
               })}

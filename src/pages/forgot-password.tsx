@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, ShieldCheck, Clock, RotateCcw, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
 import { C } from "@/utils/theme";
 import { Field } from "@/components/ui/Field";
+import { apiRequest } from "../utils/api";
 
 type Step = "email" | "otp" | "reset";
 type Role = "user" | "restaurant_admin" | "main_admin";
@@ -14,7 +15,6 @@ export function ForgotPassword() {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [detectedRole, setDetectedRole] = useState<Role>("user");
-  const [generatedOtp, setGeneratedOtp] = useState("");
   const [otpInputs, setOtpInputs] = useState<string[]>(Array(6).fill(""));
   const [timer, setTimer] = useState(60);
   const [isTimerActive, setIsTimerActive] = useState(false);
@@ -65,65 +65,45 @@ export function ForgotPassword() {
     }
 
     setLoading(true);
-    
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const response = await apiRequest<{ message: string; role: string }>("/auth/forgot-password", {
+        method: "POST",
+        body: { email: email.toLowerCase().trim() },
+      });
 
-    // Lookup user role in mock DB
-    let role: Role | null = null;
-    const cleanEmail = email.toLowerCase().trim();
-
-    if (cleanEmail === "admin@gmail.com") {
-      role = "main_admin";
-    } else if (cleanEmail === "restaurant@gmail.com") {
-      role = "restaurant_admin";
-    } else if (cleanEmail === "user@gmail.com") {
-      role = "user";
-    } else {
-      // Check in trinco_mock_users
-      const savedUsers = localStorage.getItem("trinco_mock_users");
-      const users = savedUsers ? JSON.parse(savedUsers) : [];
-      const foundUser = users.find((u: any) => u.email.toLowerCase() === cleanEmail);
-      if (foundUser) {
-        role = "user";
-      }
+      const roleMapped: Role = response.role === "ADMIN" 
+        ? "main_admin" 
+        : response.role === "RESTAURANT" 
+          ? "restaurant_admin" 
+          : "user";
+      
+      setDetectedRole(roleMapped);
+      setTimer(60);
+      setIsTimerActive(true);
+      setOtpInputs(Array(6).fill(""));
+      setStep("otp");
+      showToast(response.message || "Successfully sent OTP to email!", "success");
+    } catch (err: any) {
+      showToast(err.message || "This email address is not registered in our system.", "error");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-
-    if (!role) {
-      showToast("This email address is not registered in our system.", "error");
-      return;
-    }
-
-    // Found the user! Set role, generate OTP, and show success popup
-    setDetectedRole(role);
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(newOtp);
-    setTimer(60);
-    setIsTimerActive(true);
-    setOtpInputs(Array(6).fill(""));
-
-    // Advance to Step 2
-    setStep("otp");
-    showToast(`Successfully sent OTP to email!`, "success");
-    // Show a separate info toast with the OTP for easy developer copy/testing
-    setTimeout(() => {
-      showToast(`Demo OTP Code: ${newOtp} (Expires in 60s)`, "info");
-    }, 1000);
   };
 
   // Handle OTP Resend
-  const handleResendOtp = () => {
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(newOtp);
-    setTimer(60);
-    setIsTimerActive(true);
-    setOtpInputs(Array(6).fill(""));
-    showToast(`Successfully resent OTP to email!`, "success");
-    setTimeout(() => {
-      showToast(`Demo OTP Code: ${newOtp} (Expires in 60s)`, "info");
-    }, 1000);
+  const handleResendOtp = async () => {
+    try {
+      const response = await apiRequest<{ message: string }>("/auth/forgot-password", {
+        method: "POST",
+        body: { email: email.toLowerCase().trim() },
+      });
+      setTimer(60);
+      setIsTimerActive(true);
+      setOtpInputs(Array(6).fill(""));
+      showToast(response.message || "Successfully resent OTP to email!", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to resend OTP.", "error");
+    }
   };
 
   // Handle individual OTP field change
@@ -149,7 +129,7 @@ export function ForgotPassword() {
   };
 
   // Handle OTP verification (Step 2)
-  const handleOtpSubmit = (e: FormEvent) => {
+  const handleOtpSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setValidationError("");
     const enteredOtp = otpInputs.join("");
@@ -164,21 +144,28 @@ export function ForgotPassword() {
       return;
     }
 
-    if (enteredOtp !== generatedOtp) {
-      setValidationError("Invalid OTP code. Please check and try again.");
-      return;
+    setLoading(true);
+    try {
+      const response = await apiRequest<{ message: string }>("/auth/verify-otp", {
+        method: "POST",
+        body: { email: email.toLowerCase().trim(), otp: enteredOtp },
+      });
+      
+      setValidationError("");
+      setStep("reset");
+      showToast(response.message || "OTP verified successfully!", "success");
+    } catch (err: any) {
+      setValidationError(err.message || "Invalid OTP code. Please check and try again.");
+    } finally {
+      setLoading(false);
     }
-
-    // Valid OTP! Advance to Step 3
-    setValidationError("");
-    setStep("reset");
-    showToast("OTP verified successfully!", "success");
   };
 
   // Handle resetting password (Step 3)
   const handleResetSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setValidationError("");
+    const enteredOtp = otpInputs.join("");
 
     if (newPassword.length < 6) {
       setValidationError("Password must be at least 6 characters long.");
@@ -191,41 +178,31 @@ export function ForgotPassword() {
     }
 
     setLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const response = await apiRequest<{ message: string }>("/auth/reset-password", {
+        method: "POST",
+        body: { 
+          email: email.toLowerCase().trim(), 
+          otp: enteredOtp,
+          password: newPassword,
+        },
+      });
 
-    // Save password reset override in mock DB
-    const cleanEmail = email.toLowerCase().trim();
-    if (detectedRole === "main_admin") {
-      localStorage.setItem("trinco_admin_password_override", newPassword);
-    } else if (detectedRole === "restaurant_admin") {
-      localStorage.setItem("trinco_restaurant_password_override", newPassword);
-    } else if (detectedRole === "user") {
-      if (cleanEmail === "user@gmail.com") {
-        localStorage.setItem("trinco_user_password_override", newPassword);
-      } else {
-        const savedUsers = localStorage.getItem("trinco_mock_users");
-        const users = savedUsers ? JSON.parse(savedUsers) : [];
-        const updatedUsers = users.map((u: any) => {
-          if (u.email.toLowerCase() === cleanEmail) {
-            return { ...u, password: newPassword };
-          }
-          return u;
-        });
-        localStorage.setItem("trinco_mock_users", JSON.stringify(updatedUsers));
-      }
+      showToast(response.message || "Password successfully reset!", "success");
+      
+      // Redirect to login page after 2 seconds
+      setTimeout(() => {
+        if (detectedRole === "user") {
+          navigate({ to: "/login" });
+        } else {
+          navigate({ to: "/business_login" });
+        }
+      }, 2000);
+    } catch (err: any) {
+      setValidationError(err.message || "Failed to reset password. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-    showToast("Password successfully reset!", "success");
-
-    // Redirect to login page after 2 seconds
-    setTimeout(() => {
-      if (detectedRole === "user") {
-        navigate({ to: "/login" });
-      } else {
-        navigate({ to: "/business_login" });
-      }
-    }, 2000);
   };
 
   const containerVariants = {
