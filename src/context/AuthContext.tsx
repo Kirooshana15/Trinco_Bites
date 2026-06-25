@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { apiRequest } from "../utils/api";
+import axios from "axios";
 
 export type UserRole = "user" | "restaurant_admin" | "main_admin";
 
@@ -160,8 +161,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const baseUrl = import.meta.env.VITE_API_URL ?? "/api";
-        const res = await fetch(baseUrl);
+        const baseUrl = import.meta.env.VITE_API_URL ?? "https://trincobites-backend.onrender.com/api";
+        const res = await axios.get(baseUrl);
         // If the request completes, the backend is up
       } catch (err) {
         console.warn("Backend connection failed. Clearing localStorage cached states...", err);
